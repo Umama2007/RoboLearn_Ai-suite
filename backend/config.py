@@ -196,13 +196,13 @@ def stream_gemini(messages_or_prompt, system_instruction=None, max_tokens=1000, 
             config = types.GenerateContentConfig(**config_args)
 
             for attempt in range(2):
+                yielded = False
                 try:
                     response_stream = client.models.generate_content_stream(
                         model=model_name,
                         contents=prompt_input,
                         config=config
                     )
-                    yielded = False
                     for chunk in response_stream:
                         if chunk.text:
                             yielded = True
@@ -211,6 +211,8 @@ def stream_gemini(messages_or_prompt, system_instruction=None, max_tokens=1000, 
                         return
                 except Exception as e:
                     last_error = e
+                    if yielded:
+                        raise RuntimeError(f"Streaming output interrupted mid-response: {str(e)}")
                     err_str = str(e)
                     if "429" in err_str or "QUOTA" in err_str.upper() or "RESOURCE_EXHAUSTED" in err_str.upper():
                         time.sleep(1.5 * (attempt + 1))

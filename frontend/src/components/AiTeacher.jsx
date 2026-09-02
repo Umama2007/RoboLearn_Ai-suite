@@ -79,6 +79,7 @@ export default function AiTeacher({ userId }) {
       const res = await fetch(`${API_BASE}/ai_chat_stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           user_id: userId,
           message: msg,
@@ -104,6 +105,8 @@ export default function AiTeacher({ userId }) {
       const reader = res.body.getReader();
       const decoder = new TextDecoder('utf-8');
       let buffer = '';
+      let receivedDone = false;
+      let hasError = false;
 
       while (true) {
         const { value, done } = await reader.read();
@@ -114,9 +117,13 @@ export default function AiTeacher({ userId }) {
         buffer = lines.pop() || '';
 
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const rawData = line.slice(6).trim();
-            if (rawData === '[DONE]') break;
+          const trimmedLine = line.trim();
+          if (trimmedLine.startsWith('data: ')) {
+            const rawData = trimmedLine.slice(6).trim();
+            if (rawData === '[DONE]') {
+              receivedDone = true;
+              break;
+            }
             try {
               const payload = JSON.parse(rawData);
               if (payload.type === 'sources') {
@@ -137,6 +144,7 @@ export default function AiTeacher({ userId }) {
                   return updated;
                 });
               } else if (payload.type === 'error') {
+                hasError = true;
                 setChatMessages((prev) => {
                   const updated = [...prev];
                   const last = { ...updated[updated.length - 1] };
@@ -149,6 +157,43 @@ export default function AiTeacher({ userId }) {
             } catch (e) {}
           }
         }
+      }
+
+      // Process residual data in buffer if present
+      if (buffer.trim().startsWith('data: ')) {
+        const rawData = buffer.trim().slice(6).trim();
+        if (rawData === '[DONE]') {
+          receivedDone = true;
+        } else {
+          try {
+            const payload = JSON.parse(rawData);
+            if (payload.type === 'text') {
+              setChatMessages((prev) => {
+                const updated = [...prev];
+                const last = { ...updated[updated.length - 1] };
+                last.text = (last.text || '') + payload.content;
+                updated[updated.length - 1] = last;
+                return updated;
+              });
+            }
+          } catch (e) {}
+        }
+      }
+
+      // Check if stream was prematurely cut off without [DONE] or error
+      if (!receivedDone && !hasError) {
+        setChatMessages((prev) => {
+          const updated = [...prev];
+          const last = { ...updated[updated.length - 1] };
+          if (last.text) {
+            last.text += "\n\n⚠️ *[Response stream interrupted — network connection lost]*";
+          } else {
+            last.isError = true;
+            last.text = "⚠️ Connection interrupted before AI response was received. Please try again.";
+          }
+          updated[updated.length - 1] = last;
+          return updated;
+        });
       }
     } catch (err) {
       setChatMessages((prev) => {

@@ -190,7 +190,7 @@ def perform_web_search(query, max_results=3):
     try:
         from tavily import TavilyClient
         client = TavilyClient(api_key=tavily_key)
-        response = client.search(query=query, max_results=max_results, search_depth="basic")
+        response = client.search(query=query, max_results=max_results, search_depth="basic", timeout=5.0)
 
         results = response.get("results", []) if isinstance(response, dict) else []
         results_text = []
@@ -1396,6 +1396,8 @@ def ai_chat_stream():
         if not message:
             return jsonify({"error":"Message empty"}), 400
 
+        # Fetch past history BEFORE adding current message to prevent double-logging in LLM context
+        history = get_history(user_id, limit=8)
         add_message(user_id, "user", message)
 
         system_prompt = (
@@ -1408,13 +1410,14 @@ def ai_chat_stream():
         messages = [{"role":"system","content":system_prompt}]
 
         web_sources = []
+        user_content = message
         if use_web_search:
             web_context, web_sources = perform_web_search(message, max_results=3)
             if web_context:
-                messages.append({"role":"system","content":web_context})
+                user_content += f"\n\n{web_context}"
 
-        messages.extend(get_history(user_id, limit=8))
-        messages.append({"role":"user","content":message})
+        messages.extend(history)
+        messages.append({"role":"user","content":user_content})
 
         def generate():
             yield f"data: {json.dumps({'type':'sources', 'web_sources': web_sources, 'llm_reference':'Gemini AI Parametric Weights & Internal Reasoning'})}\n\n"
@@ -1424,7 +1427,8 @@ def ai_chat_stream():
                     if text_chunk:
                         full_text += text_chunk
                         yield f"data: {json.dumps({'type':'text', 'content': text_chunk})}\n\n"
-                add_message(user_id, "assistant", full_text)
+                if full_text:
+                    add_message(user_id, "assistant", full_text)
             except Exception as ex:
                 yield f"data: {json.dumps({'type':'error', 'error': str(ex)})}\n\n"
             yield "data: [DONE]\n\n"
