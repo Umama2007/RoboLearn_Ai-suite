@@ -71,7 +71,7 @@ def get_gemini_client(api_key=None):
 
 def get_fallback_models():
     primary = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
-    defaults = [primary, "gemini-2.5-flash-lite", "gemini-1.5-flash", "gemini-1.5-flash-8b"]
+    defaults = [primary, "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-flash-latest"]
     seen = set()
     dedup = []
     for m in defaults:
