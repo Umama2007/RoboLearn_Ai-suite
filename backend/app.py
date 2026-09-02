@@ -559,7 +559,7 @@ def excerpt_search(book_text, query, ctx_chars=1200, book_id=None):
 def home():
     return jsonify({
         "app": "Advance Education System API Backend",
-        "model": OLLAMA_MODEL,
+        "model": GEMINI_MODEL,
         "status": "online"
     })
 
@@ -1296,7 +1296,7 @@ def teach_topic():
         book_text, past_text, _ = get_memory(user_id)
         add_message(user_id, "user", f"Teach topic: {topic}")
         
-        system_prompt = ("You are a patient, friendly teacher powered by qwen2.5:1.5b. Teach the topic clearly. "
+        system_prompt = ("You are a patient, friendly teacher powered by Gemini AI. Teach the topic clearly. "
                          "Provide: 1) Clear explanation, 2) Two short examples, 3) One practice task.\n"
                          "Include a section '### 🧠 LLM Knowledge & Concept References' at the bottom.")
         messages = [{"role":"system","content":system_prompt}]
