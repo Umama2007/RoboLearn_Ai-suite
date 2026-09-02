@@ -1,0 +1,9 @@
+{
+  "name": "adaptive-learning-root",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "Run_Website.bat",
+    "dev": "Run_Website.bat"
+  }
+}

@@ -1,0 +1,16 @@
+flask
+requests
+python-dotenv
+google-genai
+psycopg2-binary
+pandas
+openpyxl
+python-docx
+pillow
+pytesseract
+PyMuPDF
+flask-cors
+tavily-python
+sentence-transformers
+numpy
+gunicorn
