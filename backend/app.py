@@ -47,9 +47,11 @@ app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_SECURE'] = os.getenv("FLASK_ENV") == "production"
 
 # HARDENED PRODUCTION CORS ORIGIN RESTRICTION
-# Restrict API access exclusively to trusted frontend domains (e.g. localhost for dev, robolearn.vercel.app for prod)
+# Restrict API access exclusively to trusted frontend domains (e.g. localhost for dev, all *.vercel.app domains for prod)
 raw_origins = os.getenv("ALLOWED_ORIGINS") or os.getenv("FRONTEND_URL") or "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,https://robolearn.vercel.app"
 allowed_origins = [o.strip() for o in raw_origins.split(",") if o.strip()]
+# Add regex matcher for all Vercel deployment & preview URLs
+allowed_origins.append(re.compile(r"https://.*\.vercel\.app"))
 
 CORS(
     app,
