@@ -83,24 +83,24 @@ In the original architecture, RoboLearn operated as a 100% offline system:
 ```mermaid
 flowchart TD
     subgraph Client [Frontend]
-        ReactUI[React SPA UI (Vite)]
+        ReactUI["React SPA UI (Vite)"]
     end
 
     subgraph Server [Backend - Flask]
-        API[API Endpoints]
-        RAG[Semantic RAG Engine]
-        Parser[Document Parsers & OCR]
-        GeminiClient[Gemini API Client w/ Fallbacks]
+        API["API Endpoints"]
+        RAG["Semantic RAG Engine"]
+        Parser["Document Parsers & OCR"]
+        GeminiClient["Gemini API Client w/ Fallbacks"]
     end
 
     subgraph Data [Supabase PostgreSQL]
-        DB[(Relational DB + Binary Vectors)]
+        DB[("Relational DB + Binary Vectors")]
     end
 
     subgraph External [External APIs]
-        GeminiCloud[Google Gemini LLM]
-        TavilyCloud[Tavily Search API]
-        GoogleAuth[Google OAuth]
+        GeminiCloud["Google Gemini LLM"]
+        TavilyCloud["Tavily Search API"]
+        GoogleAuth["Google OAuth"]
     end
 
     ReactUI <-->|JSON / SSE Streams| API
@@ -249,6 +249,7 @@ RoboLearn uses a relational schema stored in Supabase PostgreSQL:
 - **Content Scoping**: Currently, AI Teacher, Quizzes, Flashcards, and PPT generation are open-topic/general knowledge by default, while the Study Schedule generator is scoped tightly to uploaded books.
 
 ## Future Roadmap
+- **Planned (v2)**: Custom In-House Voice Model. We are actively training a proprietary voice AI model from scratch. Dataset collection, chunking, and transcription are fully completed. Final model training is pending GPU availability and is expected to conclude within a month, slated for release in version 2.
 - **Planned**: Dedicated vector database (e.g., `pgvector`) migration for faster similarity search on massive datasets.
 - **Planned**: Comprehensive unit testing suite.
 - **Planned**: Integration of local open-weight LLMs (restoring the Ollama pathway as an offline alternative).
