@@ -249,7 +249,7 @@ RoboLearn uses a relational schema stored in Supabase PostgreSQL:
 - **Content Scoping**: Currently, AI Teacher, Quizzes, Flashcards, and PPT generation are open-topic/general knowledge by default, while the Study Schedule generator is scoped tightly to uploaded books.
 
 ## Future Roadmap
-- **Planned (v2)**: Custom In-House Voice Model. We are actively training a proprietary voice AI model from scratch. Dataset collection, chunking, and transcription are fully completed. Final model training is pending GPU availability and is expected to conclude within a month, slated for release in version 2.
+- **Planned (v2)**: Custom In-House Voice Model. We are actively training a proprietary voice AI model from scratch. Dataset collection, chunking, and transcription are fully completed. Final model training is pending GPU availability and is expected to conclude within a month, slated for release in version 2. [View dataset & training progress evidence](https://drive.google.com/drive/folders/11RvKH2kJBrK2TQEl9T5h820knVsuwbPK?usp=sharing) *(folder includes raw audio samples, transcription pipeline scripts, and a chunking log)*.
 - **Planned**: Dedicated vector database (e.g., `pgvector`) migration for faster similarity search on massive datasets.
 - **Planned**: Comprehensive unit testing suite.
 - **Planned**: Integration of local open-weight LLMs (restoring the Ollama pathway as an offline alternative).
