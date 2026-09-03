@@ -122,7 +122,7 @@ export default function AiTeacher({ userId }) {
             const rawData = trimmedLine.slice(6).trim();
             if (rawData === '[DONE]') {
               receivedDone = true;
-              break;
+              continue;
             }
             try {
               const payload = JSON.parse(rawData);
@@ -175,6 +175,16 @@ export default function AiTeacher({ userId }) {
                 updated[updated.length - 1] = last;
                 return updated;
               });
+            } else if (payload.type === 'error') {
+              hasError = true;
+              setChatMessages((prev) => {
+                const updated = [...prev];
+                const last = { ...updated[updated.length - 1] };
+                last.isError = true;
+                last.text = `⚠️ ${payload.error}`;
+                updated[updated.length - 1] = last;
+                return updated;
+              });
             }
           } catch (e) {}
         }
@@ -185,11 +195,9 @@ export default function AiTeacher({ userId }) {
         setChatMessages((prev) => {
           const updated = [...prev];
           const last = { ...updated[updated.length - 1] };
-          if (last.text) {
-            last.text += "\n\n⚠️ *[Response stream interrupted — network connection lost]*";
-          } else {
+          if (!last.text) {
             last.isError = true;
-            last.text = "⚠️ Connection interrupted before AI response was received. Please try again.";
+            last.text = "⚠️ Connection interrupted before AI response was received. Please check your API key or network connection.";
           }
           updated[updated.length - 1] = last;
           return updated;

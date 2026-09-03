@@ -91,12 +91,18 @@ ACCOUNT_QUOTA_MARKERS = [
     "free_tier",
     "limit_exceeded",
     "daily_quota",
-    "quota_exceeded"
+    "quota_exceeded",
+    "api_key_invalid",
+    "invalid_api_key",
+    "api key not valid",
+    "unauthenticated",
+    "permission_denied",
+    "invalid_argument"
 ]
 
 def _is_account_quota_exhausted(err_str: str) -> bool:
     """
-    Distinguishes account/project-level quota exhaustion (key is completely dead)
+    Distinguishes account/project-level quota exhaustion and invalid API keys (key is dead)
     from transient per-model rate limits (worth falling back to next model on same key).
     """
     if not err_str:
@@ -191,6 +197,9 @@ def call_gemini(messages_or_prompt, system_instruction=None, max_tokens=1000, te
                             break
                         time.sleep(1.0 * (2 ** attempt))
                         continue
+                    elif _is_account_quota_exhausted(err_str):
+                        account_key_dead = True
+                        break
                     break
 
     raise RuntimeError(f"All AI model quotas are temporarily busy. Please wait a moment and try again. ({str(last_error)})")
@@ -255,6 +264,9 @@ def stream_gemini(messages_or_prompt, system_instruction=None, max_tokens=1000, 
                             break
                         time.sleep(1.5 * (2 ** attempt))
                         continue
+                    elif _is_account_quota_exhausted(err_str):
+                        account_key_dead = True
+                        break
                     break
 
     raise RuntimeError(f"All AI streaming services are temporarily busy. Please try again. ({str(last_error)})")
