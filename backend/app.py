@@ -41,7 +41,7 @@ def handle_db_operational_error(e):
         "error": "Database Service Unavailable",
         "message": "Could not connect to Supabase PostgreSQL database. Please verify connection credentials and network status."
     }), 503
-app.secret_key = os.getenv("SECRET_KEY", "robolearn_prod_secret_key_8f3d9b1a7c2e")
+app.secret_key = os.getenv("SECRET_KEY", "dev_default_secret_key_change_in_production")
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_SECURE'] = os.getenv("FLASK_ENV") == "production"
