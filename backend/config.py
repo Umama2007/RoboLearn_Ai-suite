@@ -80,6 +80,30 @@ def get_fallback_models():
             dedup.append(m)
     return dedup
 
+ACCOUNT_QUOTA_MARKERS = [
+    "billing",
+    "insufficient_quota",
+    "exceeded your current quota",
+    "generaterequestsperdayperprojectpermodel-freetier",
+    "quota_metric",
+    "perday",
+    "projectpermodel",
+    "free_tier",
+    "limit_exceeded",
+    "daily_quota",
+    "quota_exceeded"
+]
+
+def _is_account_quota_exhausted(err_str: str) -> bool:
+    """
+    Distinguishes account/project-level quota exhaustion (key is completely dead)
+    from transient per-model rate limits (worth falling back to next model on same key).
+    """
+    if not err_str:
+        return False
+    lower_err = err_str.lower()
+    return any(marker in lower_err for marker in ACCOUNT_QUOTA_MARKERS)
+
 def _format_prompt(messages_or_prompt, system_instruction):
     sys_inst = system_instruction or ""
     contents = []
@@ -130,7 +154,11 @@ def call_gemini(messages_or_prompt, system_instruction=None, max_tokens=1000, te
             last_error = ke
             continue
 
+        account_key_dead = False
         for model_name in fallback_models:
+            if account_key_dead:
+                break
+
             config_args = {
                 "temperature": temperature,
                 "max_output_tokens": max_tokens
@@ -158,7 +186,10 @@ def call_gemini(messages_or_prompt, system_instruction=None, max_tokens=1000, te
                     last_error = e
                     err_str = str(e)
                     if "429" in err_str or "QUOTA" in err_str.upper() or "RESOURCE_EXHAUSTED" in err_str.upper():
-                        time.sleep(1.0 * (attempt + 1))
+                        if _is_account_quota_exhausted(err_str):
+                            account_key_dead = True
+                            break
+                        time.sleep(1.0 * (2 ** attempt))
                         continue
                     break
 
@@ -185,7 +216,11 @@ def stream_gemini(messages_or_prompt, system_instruction=None, max_tokens=1000, 
             last_error = ke
             continue
 
+        account_key_dead = False
         for model_name in fallback_models:
+            if account_key_dead:
+                break
+
             config_args = {
                 "temperature": temperature,
                 "max_output_tokens": max_tokens
@@ -215,7 +250,10 @@ def stream_gemini(messages_or_prompt, system_instruction=None, max_tokens=1000, 
                         raise RuntimeError(f"Streaming output interrupted mid-response: {str(e)}")
                     err_str = str(e)
                     if "429" in err_str or "QUOTA" in err_str.upper() or "RESOURCE_EXHAUSTED" in err_str.upper():
-                        time.sleep(1.5 * (attempt + 1))
+                        if _is_account_quota_exhausted(err_str):
+                            account_key_dead = True
+                            break
+                        time.sleep(1.5 * (2 ** attempt))
                         continue
                     break
 
