@@ -489,7 +489,7 @@ flowchart LR
         TavilyAPI["Tavily Web Search API\n(Only for live web facts)"]
     end
 
-    WSGI -.->|Optional Grounding (User Enabled)| TavilyAPI
+    WSGI -.->|"Optional Grounding (User Enabled)"| TavilyAPI
 
     %% Styling & Annotations
     classDef offline fill:#ecfdf5,stroke:#059669,stroke-width:2px,color:#065f46;
