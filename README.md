@@ -95,6 +95,10 @@ flowchart TD
 | **AI / NLP** | Ollama (`qwen2.5:1.5b`), Sentence-Transformers (`all-MiniLM-L6-v2`), PyMuPDF, PyTesseract |
 | **Document Export** | `python-pptx`, `python-docx`, `openpyxl` |
 
+## Technical Documentation
+- **[TECHNICAL_IMPLEMENTATION.md](file:///c:/Users/MC/Desktop/RoboLearn_Ai%20suite/TECHNICAL_IMPLEMENTATION.md)**: Full architecture migration report detailing the removal of Gemini API keys, local Ollama integration, error handling, function signatures, and setup.
+- **[TECHNICAL_OVERVIEW.md](file:///c:/Users/MC/Desktop/RoboLearn_Ai%20suite/TECHNICAL_OVERVIEW.md)**: Deep-dive architecture overview, RAG vector pipeline, database schemas, and request flow.
+
 ## Project Structure
 ```text
 RoboLearn/
