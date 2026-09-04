@@ -55,7 +55,10 @@ export default function WordPdfUploader({ userId }) {
 
   const fetchSavedBooks = async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/user/books`, { credentials: 'include' });
+      const res = await fetch(`${API_BASE}/api/user/books${userId ? `?user_id=${encodeURIComponent(userId)}` : ''}`, {
+        credentials: 'include',
+        headers: userId ? { 'Authorization': `Bearer ${userId}` } : {}
+      });
       if (res.ok) {
         const data = await res.json();
         if (data.books) {
@@ -91,11 +94,13 @@ export default function WordPdfUploader({ userId }) {
 
     const fd = new FormData();
     fd.append('book', selectedFile);
+    if (userId) fd.append('user_id', userId);
 
     try {
       const res = await fetch(`${API_BASE}/api/user/books/upload`, {
         method: 'POST',
         credentials: 'include',
+        headers: userId ? { 'Authorization': `Bearer ${userId}` } : {},
         body: fd
       });
       const data = await res.json();
@@ -119,7 +124,7 @@ export default function WordPdfUploader({ userId }) {
 
   useEffect(() => {
     fetchSavedBooks();
-  }, []);
+  }, [userId]);
 
   const handleSelectSavedBook = async (bookId) => {
     if (!bookId) return;
@@ -129,9 +134,12 @@ export default function WordPdfUploader({ userId }) {
     try {
       const res = await fetch(`${API_BASE}/api/user/books/active`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(userId ? { 'Authorization': `Bearer ${userId}` } : {})
+        },
         credentials: 'include',
-        body: JSON.stringify({ book_id: parseInt(bookId) })
+        body: JSON.stringify({ book_id: parseInt(bookId), user_id: userId })
       });
       if (res.ok) {
         const data = await res.json();
@@ -224,12 +232,15 @@ export default function WordPdfUploader({ userId }) {
     setResult(null);
 
     const fd = new FormData();
+    if (userId) fd.append('user_id', userId);
     fd.append('subject', subject);
     fd.append('grade', grade);
     fd.append('language', language);
     fd.append('start_date', startDate);
     fd.append('mode', studyMode);
     fd.append('panic_time', panicTime);
+    fd.append('duration_val', durationVal);
+    fd.append('duration_unit', durationUnit);
 
     if (file) {
       fd.append('book', file);
@@ -239,17 +250,24 @@ export default function WordPdfUploader({ userId }) {
     }
 
     try {
-      // 1. Train teacher memory (with session auth)
+      // 1. Train teacher memory (with session / bearer auth)
       const trainFd = new FormData();
+      if (userId) trainFd.append('user_id', userId);
       if (file) trainFd.append('teacher_book', file);
       else trainFd.append('teacher_book', new Blob([text], { type: 'text/plain' }), 'book_text.txt');
       
-      fetch(`${API_BASE}/train_teacher`, { method: 'POST', credentials: 'include', body: trainFd }).catch(() => {});
+      fetch(`${API_BASE}/train_teacher`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: userId ? { 'Authorization': `Bearer ${userId}` } : {},
+        body: trainFd
+      }).catch(() => {});
 
       // 2. Generate Curriculum
       const res = await fetch(`${API_BASE}/generate_curriculum`, {
         method: 'POST',
         credentials: 'include',
+        headers: userId ? { 'Authorization': `Bearer ${userId}` } : {},
         body: fd
       });
 

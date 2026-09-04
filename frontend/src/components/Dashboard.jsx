@@ -34,7 +34,11 @@ export default function Dashboard({ setActivePage, user }) {
 
   const fetchStats = async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/user/dashboard-stats`, { credentials: 'include' });
+      const uId = user?.id;
+      const res = await fetch(`${API_BASE}/api/user/dashboard-stats${uId ? `?user_id=${encodeURIComponent(uId)}` : ''}`, {
+        credentials: 'include',
+        headers: uId ? { 'Authorization': `Bearer ${uId}` } : {}
+      });
       if (res.ok) {
         const data = await res.json();
         if (data.authenticated) {
@@ -50,15 +54,18 @@ export default function Dashboard({ setActivePage, user }) {
 
   useEffect(() => {
     fetchStats();
-  }, []);
+  }, [user]);
 
   const handleSelectActiveBook = async (bookId) => {
     try {
       await fetch(`${API_BASE}/api/user/books/active`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(user?.id ? { 'Authorization': `Bearer ${user.id}` } : {})
+        },
         credentials: 'include',
-        body: JSON.stringify({ book_id: bookId })
+        body: JSON.stringify({ book_id: bookId, user_id: user?.id })
       });
       setActivePage('ai-teacher');
     } catch (e) {
@@ -73,7 +80,12 @@ export default function Dashboard({ setActivePage, user }) {
     try {
       const res = await fetch(`${API_BASE}/api/user/books/${bookId}/delete`, {
         method: 'POST',
-        credentials: 'include'
+        headers: {
+          'Content-Type': 'application/json',
+          ...(user?.id ? { 'Authorization': `Bearer ${user.id}` } : {})
+        },
+        credentials: 'include',
+        body: JSON.stringify({ user_id: user?.id })
       });
       if (res.ok) {
         fetchStats();

@@ -13,7 +13,7 @@ import {
   Maximize2
 } from 'lucide-react';
 import mermaid from 'mermaid';
-import { API_BASE } from '../config';
+import { API_BASE, fetchWithRetry } from '../config';
 
 export default function FlowDiagram({ userId }) {
   const [topic, setTopic] = useState('');
@@ -27,6 +27,7 @@ export default function FlowDiagram({ userId }) {
 
   const [svgContent, setSvgContent] = useState('');
   const [renderError, setRenderError] = useState('');
+  const [genError, setGenError] = useState('');
   const diagramContainerRef = useRef(null);
 
   // Initialize Mermaid configuration
@@ -56,15 +57,16 @@ export default function FlowDiagram({ userId }) {
     }
   };
 
-  // Generate Flowchart via Local Ollama LLM
+  // Generate Flowchart via AI LLM
   const handleGenerate = async (e) => {
     e.preventDefault();
     if (!topic.trim()) return;
     setIsGenerating(true);
     setRenderError('');
+    setGenError('');
 
     try {
-      const res = await fetch(`${API_BASE}/generate_flowchart`, {
+      const res = await fetchWithRetry(`${API_BASE}/generate_flowchart`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -78,10 +80,10 @@ export default function FlowDiagram({ userId }) {
       if (data.mermaid_code) {
         setMermaidCode(data.mermaid_code);
       } else {
-        alert(data.error || 'Failed to generate flowchart diagram.');
+        setGenError(data.error || 'Failed to generate flowchart diagram.');
       }
     } catch (err) {
-      alert('Error connecting to flowchart generator: ' + err.message);
+      setGenError(err.message || 'Could not connect to flowchart generator. Please retry.');
     } finally {
       setIsGenerating(false);
     }
@@ -214,6 +216,25 @@ export default function FlowDiagram({ userId }) {
             <button type="submit" className="btn btn-primary" style={{ width: '100%', background: 'linear-gradient(135deg, #0D9488 0%, #0F766E 100%)', color: '#ffffff', fontWeight: '800' }} disabled={isGenerating}>
               <Sparkles size={16} /> {isGenerating ? 'Architecting Flowchart...' : 'Generate Flow Diagram'}
             </button>
+
+            {genError && (
+              <div style={{
+                marginTop: '0.65rem',
+                padding: '0.65rem 0.85rem',
+                borderRadius: '8px',
+                background: 'rgba(244, 63, 94, 0.16)',
+                border: '1px solid rgba(244, 63, 94, 0.4)',
+                color: '#fca5a5',
+                fontSize: '0.78rem',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '0.4rem',
+                lineHeight: '1.35'
+              }}>
+                <span style={{ flexShrink: 0 }}>⚠️</span>
+                <span>{genError}</span>
+              </div>
+            )}
           </form>
 
           {/* Tips Box */}

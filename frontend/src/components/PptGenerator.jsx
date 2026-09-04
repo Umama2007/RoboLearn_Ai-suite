@@ -18,7 +18,7 @@ import {
   Edit3,
   RotateCcw
 } from 'lucide-react';
-import { API_BASE } from '../config';
+import { API_BASE, fetchWithRetry } from '../config';
 
 export default function PptGenerator({ userId }) {
   const [topic, setTopic] = useState('');
@@ -32,21 +32,20 @@ export default function PptGenerator({ userId }) {
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [genError, setGenError] = useState('');
+  const [slides, setSlides] = useState([]);
+  const [activeSlideIdx, setActiveSlideIdx] = useState(0);
   const [exportMessage, setExportMessage] = useState('');
 
-  const [slides, setSlides] = useState([]);
-
-  const [activeSlideIdx, setActiveSlideIdx] = useState(0);
-
-  const themeGradients = {
-    indigo: 'linear-gradient(145deg, #0F172A 0%, #1E293B 100%)',
-    cyan: 'linear-gradient(145deg, #0F172A 0%, #0D9488 100%)',
-    emerald: 'linear-gradient(145deg, #022c22, #064e3b)',
-    amber: 'linear-gradient(145deg, #451a03, #78350f)',
-    corporate_white: 'linear-gradient(135deg, #f8fafc, #e2e8f0)'
+  const colorPalettes = {
+    indigo: '#6366F1',
+    cyan: '#06B6D4',
+    emerald: '#10B981',
+    amber: '#F59E0B',
+    corporate_white: '#F8FAFC'
   };
 
-  const themeTextColors = {
+  const colorText = {
     indigo: '#ffffff',
     cyan: '#ffffff',
     emerald: '#ffffff',
@@ -59,10 +58,11 @@ export default function PptGenerator({ userId }) {
     e.preventDefault();
     if (!topic.trim()) return;
     setIsGenerating(true);
+    setGenError('');
     setExportMessage('');
 
     try {
-      const res = await fetch(`${API_BASE}/generate_ppt_slides`, {
+      const res = await fetchWithRetry(`${API_BASE}/generate_ppt_slides`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -77,10 +77,10 @@ export default function PptGenerator({ userId }) {
         setSlides(data.slides.map(s => ({ ...s, custom_image: null })));
         setActiveSlideIdx(0);
       } else {
-        alert(data.error || 'Failed to generate presentation slides.');
+        setGenError(data.error || 'Failed to generate presentation slides.');
       }
     } catch (err) {
-      alert('Error connecting to presentation generator: ' + err.message);
+      setGenError(err.message || 'Could not connect to presentation generator. Please retry.');
     } finally {
       setIsGenerating(false);
     }
@@ -134,7 +134,7 @@ export default function PptGenerator({ userId }) {
     setExportMessage('Building customized .pptx PowerPoint file with chosen shapes, animations & images...');
 
     try {
-      const res = await fetch(`${API_BASE}/export_ppt`, {
+      const res = await fetchWithRetry(`${API_BASE}/export_ppt`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -375,8 +375,27 @@ export default function PptGenerator({ userId }) {
             </div>
 
             <button type="submit" className="btn btn-primary" style={{ width: '100%', background: 'linear-gradient(135deg, #0D9488 0%, #0F766E 100%)', color: '#ffffff', fontWeight: '800' }} disabled={isGenerating}>
-              <Sparkles size={16} /> {isGenerating ? 'Generating Slides via LLM...' : 'Build Presentation Deck'}
+              <Sparkles size={16} /> {isGenerating ? 'Generating Slides via AI...' : 'Build Presentation Deck'}
             </button>
+
+            {genError && (
+              <div style={{
+                marginTop: '0.65rem',
+                padding: '0.65rem 0.85rem',
+                borderRadius: '8px',
+                background: 'rgba(244, 63, 94, 0.16)',
+                border: '1px solid rgba(244, 63, 94, 0.4)',
+                color: '#fca5a5',
+                fontSize: '0.78rem',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '0.4rem',
+                lineHeight: '1.35'
+              }}>
+                <span style={{ flexShrink: 0 }}>⚠️</span>
+                <span>{genError}</span>
+              </div>
+            )}
           </form>
 
           {/* Slide List Outline Sidebar */}

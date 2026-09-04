@@ -10,13 +10,14 @@ import {
   Cpu,
   Check
 } from 'lucide-react';
-import { API_BASE } from '../config';
+import { API_BASE, fetchWithRetry } from '../config';
 
 export default function FlashcardGenerator({ userId, initialSource = 'web_llm' }) {
   const [topicText, setTopicText] = useState('');
   const [cardCount, setCardCount] = useState(5);
   const [source, setSource] = useState(initialSource);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [genError, setGenError] = useState('');
   const [cards, setCards] = useState([]);
 
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -27,14 +28,15 @@ export default function FlashcardGenerator({ userId, initialSource = 'web_llm' }
     setIsFlipped(false);
   }, [currentIndex]);
 
-  // Generate Deck via Local LLM API
+  // Generate Deck via AI LLM API
   const handleGenerate = async (e) => {
     e.preventDefault();
     if (!topicText.trim()) return;
     setIsGenerating(true);
+    setGenError('');
 
     try {
-      const res = await fetch(`${API_BASE}/generate_flashcards`, {
+      const res = await fetchWithRetry(`${API_BASE}/generate_flashcards`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -53,10 +55,10 @@ export default function FlashcardGenerator({ userId, initialSource = 'web_llm' }
         setCurrentIndex(0);
         setIsFlipped(false);
       } else {
-        alert(data.error || 'Failed to generate flashcards via LLM.');
+        setGenError(data.error || 'Failed to generate flashcards. Please try another topic.');
       }
     } catch (err) {
-      alert('Error connecting to LLM generator: ' + err.message);
+      setGenError(err.message || 'Could not connect to flashcard generator. Please retry.');
     } finally {
       setIsGenerating(false);
     }
@@ -166,8 +168,27 @@ export default function FlashcardGenerator({ userId, initialSource = 'web_llm' }
             </div>
 
             <button type="submit" className="btn btn-primary" style={{ width: '100%', background: 'linear-gradient(135deg, #0D9488 0%, #0F766E 100%)', color: '#ffffff', fontWeight: '800' }} disabled={isGenerating}>
-              <Sparkles size={16} /> {isGenerating ? 'Generating LLM Cards...' : 'Build Flashcard Deck'}
+              <Sparkles size={16} /> {isGenerating ? 'Generating Flashcards...' : 'Build Flashcard Deck'}
             </button>
+
+            {genError && (
+              <div style={{
+                marginTop: '0.65rem',
+                padding: '0.65rem 0.85rem',
+                borderRadius: '8px',
+                background: 'rgba(244, 63, 94, 0.16)',
+                border: '1px solid rgba(244, 63, 94, 0.4)',
+                color: '#fca5a5',
+                fontSize: '0.78rem',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '0.4rem',
+                lineHeight: '1.35'
+              }}>
+                <span style={{ flexShrink: 0 }}>⚠️</span>
+                <span>{genError}</span>
+              </div>
+            )}
           </form>
 
           <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid rgba(255, 255, 255, 0.12)', fontSize: '0.85rem', color: 'rgba(255, 255, 255, 0.7)' }}>

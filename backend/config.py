@@ -2,6 +2,7 @@ import os
 import time
 import json
 import hashlib
+import requests
 from threading import Lock
 from dotenv import load_dotenv
 
@@ -55,6 +56,18 @@ def get_api_keys():
         return []
     return [k.strip() for k in keys_str.split(",") if k.strip()]
 
+def get_groq_api_keys():
+    keys_str = os.getenv("GROQ_API_KEYS") or os.getenv("GROQ_API_KEY") or ""
+    if not keys_str:
+        return []
+    return [k.strip() for k in keys_str.split(",") if k.strip()]
+
+def get_openrouter_api_keys():
+    keys_str = os.getenv("OPENROUTER_API_KEYS") or os.getenv("OPENROUTER_API_KEY") or ""
+    if not keys_str:
+        return []
+    return [k.strip() for k in keys_str.split(",") if k.strip()]
+
 def get_gemini_client(api_key=None):
     global _genai_clients
     keys = get_api_keys()
@@ -103,9 +116,89 @@ def _format_prompt(messages_or_prompt, system_instruction):
         prompt_input = str(messages_or_prompt)
     return prompt_input, sys_inst
 
+def _build_openai_messages(messages_or_prompt, system_instruction):
+    messages = []
+    if system_instruction:
+        messages.append({"role": "system", "content": system_instruction})
+    if isinstance(messages_or_prompt, list):
+        for msg in messages_or_prompt:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if role in ["user", "human"]:
+                messages.append({"role": "user", "content": content})
+            elif role in ["assistant", "ai"]:
+                messages.append({"role": "assistant", "content": content})
+            elif role == "system" and not system_instruction:
+                messages.append({"role": "system", "content": content})
+    else:
+        messages.append({"role": "user", "content": str(messages_or_prompt)})
+    return messages
+
+def _call_groq_fallback(messages, temperature=0.2, max_tokens=1000, response_json=False):
+    groq_keys = get_groq_api_keys()
+    if not groq_keys:
+        return None
+    models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"]
+    for key in groq_keys:
+        headers = {
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json"
+        }
+        for model in models:
+            payload = {
+                "model": model,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens
+            }
+            if response_json:
+                payload["response_format"] = {"type": "json_object"}
+            try:
+                res = requests.post("https://api.groq.com/openai/v1/chat/completions", json=payload, headers=headers, timeout=20)
+                if res.status_code == 200:
+                    data = res.json()
+                    content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                    if content:
+                        return content
+            except Exception:
+                continue
+    return None
+
+def _call_openrouter_fallback(messages, temperature=0.2, max_tokens=1000, response_json=False):
+    or_keys = get_openrouter_api_keys()
+    if not or_keys:
+        return None
+    models = ["google/gemini-2.5-flash", "meta-llama/llama-3.3-70b-instruct", "deepseek/deepseek-chat"]
+    for key in or_keys:
+        headers = {
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://robolearn.ai",
+            "X-Title": "RoboLearn AI"
+        }
+        for model in models:
+            payload = {
+                "model": model,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens
+            }
+            if response_json:
+                payload["response_format"] = {"type": "json_object"}
+            try:
+                res = requests.post("https://openrouter.ai/api/v1/chat/completions", json=payload, headers=headers, timeout=25)
+                if res.status_code == 200:
+                    data = res.json()
+                    content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                    if content:
+                        return content
+            except Exception:
+                continue
+    return None
+
 def call_gemini(messages_or_prompt, system_instruction=None, max_tokens=1000, temperature=0.2, response_json=False, bypass_cache=False):
     """
-    Unified caller for Google Gemini API with response caching and failover model chain.
+    Unified caller for AI with response caching, Gemini key rotation, and Groq / OpenRouter failover.
     """
     prompt_input, sys_inst = _format_prompt(messages_or_prompt, system_instruction)
 
@@ -115,108 +208,127 @@ def call_gemini(messages_or_prompt, system_instruction=None, max_tokens=1000, te
         if cached:
             return cached
 
-    from google.genai import types
+    # Tier 1: Try Gemini Keys
     api_keys = get_api_keys()
-    if not api_keys:
-        raise RuntimeError("GEMINI_API_KEY environment variable is missing.")
-
     fallback_models = get_fallback_models()
     last_error = None
 
-    for key in api_keys:
-        try:
-            client = get_gemini_client(api_key=key)
-        except Exception as ke:
-            last_error = ke
-            continue
+    if api_keys:
+        from google.genai import types
+        for key in api_keys:
+            try:
+                client = get_gemini_client(api_key=key)
+            except Exception as ke:
+                last_error = ke
+                continue
 
-        for model_name in fallback_models:
-            config_args = {
-                "temperature": temperature,
-                "max_output_tokens": max_tokens
-            }
-            if sys_inst:
-                config_args["system_instruction"] = sys_inst
-            if response_json:
-                config_args["response_mime_type"] = "application/json"
+            for model_name in fallback_models:
+                config_args = {
+                    "temperature": temperature,
+                    "max_output_tokens": max_tokens
+                }
+                if sys_inst:
+                    config_args["system_instruction"] = sys_inst
+                if response_json:
+                    config_args["response_mime_type"] = "application/json"
 
-            config = types.GenerateContentConfig(**config_args)
+                config = types.GenerateContentConfig(**config_args)
 
-            for attempt in range(2):
-                try:
-                    response = client.models.generate_content(
-                        model=model_name,
-                        contents=prompt_input,
-                        config=config
-                    )
-                    res_text = response.text or ""
-                    if res_text:
-                        if not bypass_cache:
-                            _ai_cache.set(prompt_input, sys_inst, temperature, response_json, res_text)
-                        return res_text
-                except Exception as e:
-                    last_error = e
-                    err_str = str(e)
-                    if "429" in err_str or "QUOTA" in err_str.upper() or "RESOURCE_EXHAUSTED" in err_str.upper():
-                        time.sleep(1.0 * (attempt + 1))
-                        continue
-                    break
+                for attempt in range(2):
+                    try:
+                        response = client.models.generate_content(
+                            model=model_name,
+                            contents=prompt_input,
+                            config=config
+                        )
+                        res_text = response.text or ""
+                        if res_text:
+                            if not bypass_cache:
+                                _ai_cache.set(prompt_input, sys_inst, temperature, response_json, res_text)
+                            return res_text
+                    except Exception as e:
+                        last_error = e
+                        err_str = str(e)
+                        if "429" in err_str or "QUOTA" in err_str.upper() or "RESOURCE_EXHAUSTED" in err_str.upper():
+                            time.sleep(0.5 * (attempt + 1))
+                            continue
+                        break
+
+    # Tier 2: Try Groq Failover Pool
+    openai_msgs = _build_openai_messages(messages_or_prompt, system_instruction)
+    groq_res = _call_groq_fallback(openai_msgs, temperature, max_tokens, response_json)
+    if groq_res:
+        if not bypass_cache:
+            _ai_cache.set(prompt_input, sys_inst, temperature, response_json, groq_res)
+        return groq_res
+
+    # Tier 3: Try OpenRouter Failover Pool
+    or_res = _call_openrouter_fallback(openai_msgs, temperature, max_tokens, response_json)
+    if or_res:
+        if not bypass_cache:
+            _ai_cache.set(prompt_input, sys_inst, temperature, response_json, or_res)
+        return or_res
 
     raise RuntimeError(f"All AI model quotas are temporarily busy. Please wait a moment and try again. ({str(last_error)})")
 
 def stream_gemini(messages_or_prompt, system_instruction=None, max_tokens=1000, temperature=0.2):
     """
-    Resilient streaming generator for Google Gemini API with fallback model chain.
+    Resilient streaming generator for Google Gemini API with fallback model chain and Groq fallback.
     """
     prompt_input, sys_inst = _format_prompt(messages_or_prompt, system_instruction)
     from google.genai import types
 
     api_keys = get_api_keys()
-    if not api_keys:
-        raise RuntimeError("GEMINI_API_KEY environment variable is missing.")
-
     fallback_models = get_fallback_models()
     last_error = None
 
-    for key in api_keys:
-        try:
-            client = get_gemini_client(api_key=key)
-        except Exception as ke:
-            last_error = ke
-            continue
+    if api_keys:
+        for key in api_keys:
+            try:
+                client = get_gemini_client(api_key=key)
+            except Exception as ke:
+                last_error = ke
+                continue
 
-        for model_name in fallback_models:
-            config_args = {
-                "temperature": temperature,
-                "max_output_tokens": max_tokens
-            }
-            if sys_inst:
-                config_args["system_instruction"] = sys_inst
+            for model_name in fallback_models:
+                config_args = {
+                    "temperature": temperature,
+                    "max_output_tokens": max_tokens
+                }
+                if sys_inst:
+                    config_args["system_instruction"] = sys_inst
 
-            config = types.GenerateContentConfig(**config_args)
+                config = types.GenerateContentConfig(**config_args)
 
-            for attempt in range(2):
-                yielded = False
-                try:
-                    response_stream = client.models.generate_content_stream(
-                        model=model_name,
-                        contents=prompt_input,
-                        config=config
-                    )
-                    for chunk in response_stream:
-                        if chunk.text:
-                            yielded = True
-                            yield chunk.text
-                    if yielded:
-                        return
-                except Exception as e:
-                    last_error = e
-                    if yielded:
-                        raise RuntimeError(f"Streaming output interrupted mid-response: {str(e)}")
-                    err_str = str(e)
-                    if "429" in err_str or "QUOTA" in err_str.upper() or "RESOURCE_EXHAUSTED" in err_str.upper():
-                        time.sleep(1.5 * (attempt + 1))
-                        continue
-                    break
+                for attempt in range(2):
+                    yielded = False
+                    try:
+                        response_stream = client.models.generate_content_stream(
+                            model=model_name,
+                            contents=prompt_input,
+                            config=config
+                        )
+                        for chunk in response_stream:
+                            if chunk.text:
+                                yielded = True
+                                yield chunk.text
+                        if yielded:
+                            return
+                    except Exception as e:
+                        last_error = e
+                        if yielded:
+                            raise RuntimeError(f"Streaming output interrupted mid-response: {str(e)}")
+                        err_str = str(e)
+                        if "429" in err_str or "QUOTA" in err_str.upper() or "RESOURCE_EXHAUSTED" in err_str.upper():
+                            time.sleep(0.5 * (attempt + 1))
+                            continue
+                        break
+
+    # Fallback to Groq if Gemini streams are busy
+    openai_msgs = _build_openai_messages(messages_or_prompt, system_instruction)
+    fallback_text = _call_groq_fallback(openai_msgs, temperature, max_tokens) or _call_openrouter_fallback(openai_msgs, temperature, max_tokens)
+    if fallback_text:
+        yield fallback_text
+        return
 
     raise RuntimeError(f"All AI streaming services are temporarily busy. Please try again. ({str(last_error)})")

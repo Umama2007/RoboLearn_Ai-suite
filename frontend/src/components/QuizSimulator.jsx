@@ -12,9 +12,10 @@ import {
   RotateCw,
   Zap,
   Target,
-  FileText
+  FileText,
+  AlertCircle
 } from 'lucide-react';
-import { API_BASE } from '../config';
+import { API_BASE, fetchWithRetry } from '../config';
 
 export default function QuizSimulator({ userId, initialSource = 'web_llm', mode = 'normal', panicTime = '24 Hours' }) {
   const [topic, setTopic] = useState('');
@@ -25,6 +26,7 @@ export default function QuizSimulator({ userId, initialSource = 'web_llm', mode 
   const [autoSelectedInfo, setAutoSelectedInfo] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isEvaluating, setIsEvaluating] = useState(false);
+  const [genError, setGenError] = useState('');
   const [quizData, setQuizData] = useState(null);
   const [currentIdx, setCurrentIdx] = useState(0);
   const [userAnswers, setUserAnswers] = useState({});
@@ -37,6 +39,7 @@ export default function QuizSimulator({ userId, initialSource = 'web_llm', mode 
     e.preventDefault();
     if (!isWeakAreasMode && !topic.trim()) return;
     setIsGenerating(true);
+    setGenError('');
     setQuizFinished(false);
     setFinalResult(null);
     setUserAnswers({});
@@ -45,7 +48,7 @@ export default function QuizSimulator({ userId, initialSource = 'web_llm', mode 
     setAutoSelectedInfo('');
 
     try {
-      const res = await fetch(`${API_BASE}/generate_quiz`, {
+      const res = await fetchWithRetry(`${API_BASE}/generate_quiz`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -60,7 +63,6 @@ export default function QuizSimulator({ userId, initialSource = 'web_llm', mode 
         })
       });
 
-
       const data = await res.json();
       if (data.quiz) {
         setQuizData(data.quiz);
@@ -70,15 +72,14 @@ export default function QuizSimulator({ userId, initialSource = 'web_llm', mode 
           setAutoSelectedInfo('');
         }
       } else {
-        alert(data.error || 'Failed to generate quiz.');
+        setGenError(data.error || 'Failed to generate quiz. Please check topic.');
       }
     } catch (err) {
-      alert('Error connecting to quiz generator: ' + err.message);
+      setGenError(err.message || 'Could not connect to AI quiz generator. Please retry.');
     } finally {
       setIsGenerating(false);
     }
   };
-
 
   // Request Socratic Hint & Counter Question
   const handleRequestSocraticHint = async (qObj) => {
@@ -87,7 +88,7 @@ export default function QuizSimulator({ userId, initialSource = 'web_llm', mode 
     const currentInput = userAnswers[qid] || '';
 
     try {
-      const res = await fetch(`${API_BASE}/socratic_hint`, {
+      const res = await fetchWithRetry(`${API_BASE}/socratic_hint`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -105,7 +106,7 @@ export default function QuizSimulator({ userId, initialSource = 'web_llm', mode 
         }));
       }
     } catch (err) {
-      alert('Error fetching Socratic hint: ' + err.message);
+      alert('Notice: ' + err.message);
     } finally {
       setIsEvaluating(false);
     }
@@ -117,7 +118,7 @@ export default function QuizSimulator({ userId, initialSource = 'web_llm', mode 
     setIsEvaluating(true);
 
     try {
-      const res = await fetch(`${API_BASE}/submit_quiz`, {
+      const res = await fetchWithRetry(`${API_BASE}/submit_quiz`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -131,10 +132,9 @@ export default function QuizSimulator({ userId, initialSource = 'web_llm', mode 
       setQuizFinished(true);
 
       // Persist attempt details to backend DB for mastery tracking
-      fetch(`${API_BASE}/api/quiz/save-attempt`, {
+      fetchWithRetry(`${API_BASE}/api/quiz/save-attempt`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({
           user_id: userId || 'student',
           chapter_title: topic || 'General Quiz',
@@ -142,7 +142,7 @@ export default function QuizSimulator({ userId, initialSource = 'web_llm', mode 
           total: data.total,
           answers: data.details || []
         })
-      }).catch(err => console.error("Save attempt error:", err));
+      }).catch(err => console.error("Save attempt notice:", err));
     } catch (err) {
       alert('Error submitting quiz: ' + err.message);
     } finally {
@@ -345,7 +345,8 @@ export default function QuizSimulator({ userId, initialSource = 'web_llm', mode 
                   padding: '0.65rem',
                   fontSize: '0.875rem',
                   fontWeight: '800',
-                  cursor: 'pointer',
+                  cursor: isGenerating ? 'not-allowed' : 'pointer',
+                  opacity: isGenerating ? 0.7 : 1,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -354,9 +355,27 @@ export default function QuizSimulator({ userId, initialSource = 'web_llm', mode 
                   transition: 'all 0.25s ease'
                 }}
               >
-                <Sparkles size={15} /> {isGenerating ? 'Generating Quiz...' : 'Build Exam Quiz'}
+                <Sparkles size={15} /> {isGenerating ? 'Generating Quiz (connecting to AI)...' : 'Build Exam Quiz'}
               </button>
             </div>
+
+            {genError && (
+              <div style={{
+                padding: '0.65rem 0.85rem',
+                borderRadius: '8px',
+                background: 'rgba(244, 63, 94, 0.16)',
+                border: '1px solid rgba(244, 63, 94, 0.4)',
+                color: '#fca5a5',
+                fontSize: '0.78rem',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '0.4rem',
+                lineHeight: '1.35'
+              }}>
+                <AlertCircle size={15} style={{ flexShrink: 0, marginTop: '2px' }} />
+                <span>{genError}</span>
+              </div>
+            )}
           </form>
 
           {/* Socratic Feature Highlight */}

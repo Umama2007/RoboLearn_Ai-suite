@@ -48,9 +48,8 @@ app.config['SESSION_COOKIE_SECURE'] = os.getenv("FLASK_ENV") == "production"
 
 # HARDENED PRODUCTION CORS ORIGIN RESTRICTION
 # Restrict API access exclusively to trusted frontend domains (e.g. localhost for dev, all *.vercel.app domains for prod)
-raw_origins = os.getenv("ALLOWED_ORIGINS") or os.getenv("FRONTEND_URL") or "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,https://robolearn.vercel.app"
+raw_origins = os.getenv("ALLOWED_ORIGINS") or os.getenv("FRONTEND_URL") or "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,https://robolearn.vercel.app,https://robo-learn-ai-suite.vercel.app"
 allowed_origins = [o.strip() for o in raw_origins.split(",") if o.strip()]
-# Add regex matcher for all Vercel deployment & preview URLs
 allowed_origins.append(re.compile(r"https://.*\.vercel\.app"))
 
 CORS(
@@ -58,8 +57,20 @@ CORS(
     supports_credentials=True,
     origins=allowed_origins,
     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization", "X-Requested-With"]
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With", "X-User-Id"]
 )
+
+@app.before_request
+def handle_options_preflight():
+    if request.method == "OPTIONS":
+        origin = request.headers.get("Origin")
+        response = jsonify({"status": "ok"})
+        if origin and (origin.endswith(".vercel.app") or "localhost" in origin or "127.0.0.1" in origin):
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, X-User-Id"
+        return response, 200
 
 @app.after_request
 def add_cors_headers(response):
@@ -69,7 +80,7 @@ def add_cors_headers(response):
             response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Access-Control-Allow-Credentials"] = "true"
             response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, X-User-Id"
     return response
 
 
@@ -86,6 +97,55 @@ def is_guest_user(user_id):
     if not user_id:
         return True
     return str(user_id).strip().lower() in ["student", "guest", "anonymous", "null", "none", ""]
+
+def get_current_user_id(allow_guest=False):
+    """
+    Resolves user_id from:
+    1. Flask session: session.get("user_id")
+    2. Authorization header: Bearer <user_id>
+    3. Custom header: X-User-Id
+    4. Form data: request.form.get("user_id")
+    5. JSON body: (request.get_json(silent=True) or {}).get("user_id")
+    6. URL query parameters: request.args.get("user_id")
+    """
+    uid = session.get("user_id")
+    if uid and str(uid).strip():
+        return str(uid).strip()
+
+    auth_header = request.headers.get("Authorization", "").strip()
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:].strip()
+        if token and token.lower() not in ["null", "undefined", "none", ""]:
+            session["user_id"] = token
+            return token
+
+    x_uid = request.headers.get("X-User-Id", "").strip()
+    if x_uid and x_uid.lower() not in ["null", "undefined", "none", ""]:
+        session["user_id"] = x_uid
+        return x_uid
+
+    if request.form:
+        form_uid = request.form.get("user_id", "").strip()
+        if form_uid and form_uid.lower() not in ["null", "undefined", "none", ""]:
+            session["user_id"] = form_uid
+            return form_uid
+
+    json_data = request.get_json(silent=True)
+    if isinstance(json_data, dict):
+        json_uid = str(json_data.get("user_id", "")).strip()
+        if json_uid and json_uid.lower() not in ["null", "undefined", "none", ""]:
+            session["user_id"] = json_uid
+            return json_uid
+
+    query_uid = request.args.get("user_id", "").strip()
+    if query_uid and query_uid.lower() not in ["null", "undefined", "none", ""]:
+        session["user_id"] = query_uid
+        return query_uid
+
+    if allow_guest:
+        return "student"
+
+    return None
 
 def save_memory(user_id, book_text=None, pastpaper_text=None, toc=None):
     if is_guest_user(user_id):
@@ -630,7 +690,7 @@ def save_book_record(user_id, title, file_name, raw_text, structure):
 
 @app.route("/api/user/books", methods=["GET"])
 def get_user_books():
-    user_id = session.get("user_id")
+    user_id = get_current_user_id(allow_guest=False)
     if not user_id:
         return jsonify({"error": "Unauthorized session"}), 401
     
@@ -660,7 +720,7 @@ def get_user_books():
 
 @app.route("/api/user/books/<int:book_id>/delete", methods=["POST", "DELETE"])
 def delete_user_book(book_id):
-    user_id = session.get("user_id")
+    user_id = get_current_user_id(allow_guest=False)
     if not user_id:
         return jsonify({"error": "Unauthorized session"}), 401
     
@@ -673,7 +733,7 @@ def delete_user_book(book_id):
 
 @app.route("/api/user/books/active", methods=["POST"])
 def set_active_book():
-    user_id = session.get("user_id")
+    user_id = get_current_user_id(allow_guest=False)
     if not user_id:
         return jsonify({"error": "Not authenticated"}), 401
 
@@ -718,7 +778,7 @@ ALLOWED_EXTENSIONS = {".pdf", ".docx"}
 @app.route("/api/user/books/upload", methods=["POST"])
 def upload_user_book():
     """Upload a PDF/DOCX file, extract text, save to books+chapters, set as active."""
-    user_id = session.get("user_id")
+    user_id = get_current_user_id(allow_guest=False)
     if not user_id:
         return jsonify({"error": "Not authenticated"}), 401
 
@@ -806,7 +866,7 @@ def upload_user_book():
 
 @app.route("/api/user/dashboard-stats", methods=["GET"])
 def get_dashboard_stats():
-    user_id = session.get("user_id")
+    user_id = get_current_user_id(allow_guest=False)
     if not user_id:
         return jsonify({"error": "Not authenticated"}), 401
 
@@ -843,8 +903,8 @@ def get_dashboard_stats():
                     SELECT b.id, b.title, b.file_name, b.uploaded_at, COUNT(ch.id) as chapter_count
                     FROM books b
                     LEFT JOIN chapters ch ON ch.book_id = b.id
-                    WHERE b.user_id = ?
-                    GROUP BY b.id
+                    WHERE b.user_id = %s
+                    GROUP BY b.id, b.title, b.file_name, b.uploaded_at
                     ORDER BY b.id DESC
                 """, (user_id,))
                 rows = c.fetchall()
@@ -917,7 +977,7 @@ def get_dashboard_stats():
 
 @app.route("/api/quiz/save-attempt", methods=["POST"])
 def save_quiz_attempt():
-    user_id = session.get("user_id") or (request.get_json() or {}).get("user_id")
+    user_id = get_current_user_id(allow_guest=False) or (request.get_json(silent=True) or {}).get("user_id")
     if is_guest_user(user_id):
         return jsonify({"success": True, "submission_id": 0, "note": "Guest quiz attempt not persisted to DB"})
 
@@ -983,7 +1043,7 @@ def save_quiz_attempt():
 
 @app.route("/api/user/study-materials", methods=["GET", "POST"])
 def manage_study_materials():
-    user_id = session.get("user_id") or (request.get_json() or {}).get("user_id")
+    user_id = get_current_user_id(allow_guest=False) or (request.get_json(silent=True) or {}).get("user_id")
     if is_guest_user(user_id):
         if request.method == "POST":
             return jsonify({"success": True, "id": 0, "note": "Guest material not persisted to DB"})
@@ -1009,36 +1069,47 @@ def manage_study_materials():
         conn.close()
         return jsonify({"success": True, "id": mat_id})
 
-    # GET request
-    c.execute("""
-        SELECT id, book_id, type, title, content_or_path, generated_at
-        FROM study_materials WHERE user_id=%s ORDER BY id DESC
-    """, (user_id,))
-    materials = [
-        {"id": r[0], "book_id": r[1], "type": r[2], "title": r[3], "content_or_path": r[4], "generated_at": r[5]}
-        for r in c.fetchall()
-    ]
+    # GET
+    book_id = request.args.get("book_id")
+    if book_id:
+        c.execute("""
+            SELECT id, book_id, type, title, content_or_path, generated_at
+            FROM study_materials
+            WHERE user_id = %s AND book_id = %s
+            ORDER BY id DESC
+        """, (user_id, book_id))
+    else:
+        c.execute("""
+            SELECT id, book_id, type, title, content_or_path, generated_at
+            FROM study_materials
+            WHERE user_id = %s
+            ORDER BY id DESC
+        """, (user_id,))
+
+    rows = c.fetchall()
     conn.close()
+
+    materials = [
+        {
+            "id": r[0],
+            "book_id": r[1],
+            "type": r[2],
+            "title": r[3],
+            "content_or_path": r[4],
+            "generated_at": r[5]
+        } for r in rows
+    ]
     return jsonify({"success": True, "materials": materials})
 
-# ------------- AUTHENTICATION ENDPOINTS -------------
+# ----------------- REAL AUTH ENDPOINTS (EMAIL + GOOGLE) -----------------
 def verify_google_token(token):
     try:
-        resp = requests.get(f"https://oauth2.googleapis.com/tokeninfo?id_token={token}", timeout=10)
+        url = f"https://oauth2.googleapis.com/tokeninfo?id_token={token}"
+        resp = requests.get(url, timeout=10)
         if resp.status_code == 200:
             return resp.json()
     except Exception as e:
-        print("Google tokeninfo check error:", e)
-    
-    try:
-        parts = token.split(".")
-        if len(parts) == 3:
-            import base64
-            padded = parts[1] + "=" * (-len(parts[1]) % 4)
-            decoded = base64.b64decode(padded)
-            return json.loads(decoded)
-    except Exception as e:
-        print("JWT decode fallback error:", e)
+        print("Google token verification notice:", e)
     return None
 
 def migrate_legacy_user_data(old_id, new_id):
@@ -1203,7 +1274,7 @@ def auth_google():
 
 @app.route("/api/auth/me", methods=["GET"])
 def auth_me():
-    user_id = session.get("user_id")
+    user_id = get_current_user_id(allow_guest=False)
     if not user_id:
         return jsonify({"authenticated": False}), 401
     
@@ -1217,6 +1288,7 @@ def auth_me():
         session.clear()
         return jsonify({"authenticated": False}), 401
 
+    session["user_id"] = row[0]
     return jsonify({
         "authenticated": True,
         "user": {
@@ -1238,9 +1310,8 @@ def auth_logout():
 @app.route("/train_teacher", methods=["POST"])
 def train_teacher():
     try:
-        user_id = session.get("user_id")
-        if not user_id:
-            return jsonify({"error": "Not authenticated"}), 401
+        user_id = get_current_user_id(allow_guest=True)
+        if not user_id: return jsonify({"error": "Auth failed"}), 401
         book_file = request.files.get("teacher_book")
         past_file = request.files.get("past_paper")
         if not book_file:
@@ -1860,9 +1931,7 @@ def submit_quiz():
 @app.route("/generate_curriculum", methods=["POST"])
 def generate_curriculum():
     try:
-        user_id = session.get("user_id")
-        if not user_id:
-            return jsonify({"error": "Not authenticated"}), 401
+        user_id = get_current_user_id(allow_guest=True)
         subject = request.form.get("subject", "General Subject")
         grade = request.form.get("grade", "9")
         language = request.form.get("language", "English")

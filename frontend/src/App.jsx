@@ -18,8 +18,22 @@ export default function App() {
   const [checkingAuth, setCheckingAuth] = useState(true);
 
   useEffect(() => {
-    // Check backend session cookie first
-    fetch(`${API_BASE}/api/auth/me`, { credentials: 'include' })
+    // Ping backend root immediately in background to wake up Render free tier from sleep
+    fetch(`${API_BASE}/`).catch(() => {});
+
+    let savedUserObj = null;
+    const savedUserStr = localStorage.getItem('education_user');
+    if (savedUserStr) {
+      try {
+        savedUserObj = JSON.parse(savedUserStr);
+      } catch (e) {}
+    }
+
+    const headers = savedUserObj?.id ? { 'Authorization': `Bearer ${savedUserObj.id}` } : {};
+    const query = savedUserObj?.id ? `?user_id=${encodeURIComponent(savedUserObj.id)}` : '';
+
+    // Check backend session / token
+    fetch(`${API_BASE}/api/auth/me${query}`, { credentials: 'include', headers })
       .then(res => {
         if (res.ok) return res.json();
         throw new Error('Not authenticated');
@@ -40,11 +54,8 @@ export default function App() {
       });
 
     function checkLocalFallback() {
-      const savedUser = localStorage.getItem('education_user');
-      if (savedUser) {
-        try {
-          setUser(JSON.parse(savedUser));
-        } catch (e) {}
+      if (savedUserObj) {
+        setUser(savedUserObj);
       }
     }
   }, []);
