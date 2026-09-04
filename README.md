@@ -1,32 +1,11 @@
-# RoboLearn
-**AI-Powered Adaptive Learning Suite**
+# RoboLearn AI Tutoring Suite
 
-RoboLearn is a full-stack, AI-powered learning platform that transforms static study materials into dynamic, personalized tutoring experiences. It enables students to upload textbooks or documents and instantly generates study schedules, interactive quizzes, flashcards, and presentations—while providing a Socratic AI tutor grounded in the specific text of the uploaded materials.
-
-## Table of Contents
-- [What is RoboLearn?](#what-is-robolearn)
-- [Key Features](#key-features)
-- [Why RoboLearn?](#why-robolearn)
-- [AI Architecture & Request Flow](#ai-architecture--request-flow)
-- [RAG (Retrieval-Augmented Generation) Pipeline](#rag-retrieval-augmented-generation-pipeline)
-- [Models Used](#models-used)
-- [System Architecture](#system-architecture)
-- [Tech Stack](#tech-stack)
-- [Installation & Setup](#installation--setup)
-- [Configuration](#configuration)
-- [API Documentation](#api-documentation)
-- [Database Structure](#database-structure)
-- [Security & Privacy](#security--privacy)
-- [Future Roadmap](#future-roadmap)
-- [License](#license)
-
-## What is RoboLearn?
-Traditional studying often involves passively reading static textbooks, leading to poor retention and engagement. RoboLearn bridges this gap by acting as a personal, intelligent tutor. 
-
-By uploading a document, students unlock an interactive suite of learning tools. RoboLearn not only answers questions using real-time context from the document (preventing AI hallucinations) but also assesses student mastery, generates targeted quizzes, and builds visual study aids like flowcharts and PowerPoint presentations.
+RoboLearn is an AI-powered tutoring and educational workflow platform. It combines a local Ollama Large Language Model (`qwen2.5:1.5b`) with an intelligent, privacy-first Retrieval-Augmented Generation (RAG) pipeline to turn textbooks, notes, and study material into structured learning tools.
 
 ## Key Features
-- **Socratic AI Tutor**: Chat with an AI teacher that guides you to answers rather than just giving them away, grounded directly in your uploaded textbooks.
+
+- **Grounded AI Teacher Chat**: Chat with an AI tutor that answers questions using local Ollama parametric knowledge and dual reference citations with optional Tavily web search grounding.
+- **Context-Aware Book Chat**: Ask questions directly against uploaded textbooks with exact chapter and page-number citations.
 - **Advanced Document Processing**: Upload PDFs or DOCX files. The system automatically extracts text, identifies table of contents/chapter structures, and chunks content for semantic search. (Includes OCR for scanned documents via Tesseract).
 - **Interactive Quiz Studio**: Generate MCQs and short-answer quizzes based on general knowledge or specific textbooks. Automatically grades answers and updates a chapter-by-chapter mastery tracking system.
 - **Flashcard & Study Guide Generator**: Quickly spin up interactive flashcards to review key concepts.
@@ -38,45 +17,36 @@ By uploading a document, students unlock an interactive suite of learning tools.
 ## Why RoboLearn?
 - **Grounded Responses**: Unlike standard ChatGPT, RoboLearn’s AI tutor cites exact book chapters and page offsets using a custom Retrieval-Augmented Generation (RAG) pipeline.
 - **Complete Learning Loop**: It doesn't just answer questions; it tests your knowledge (quizzes), visualizes it (flowcharts/PPTs), and tracks your progress (mastery dashboard).
-- **Hybrid AI Architecture**: Combines blazing-fast cloud LLM inference (Google Gemini) with local, privacy-first vector embeddings (Sentence-Transformers).
+- **Privacy-First Local AI Architecture**: Runs on local Ollama LLM inference (`qwen2.5:1.5b`) combined with local vector embeddings (`Sentence-Transformers`), keeping study material private on your machine.
 
 ## AI Architecture & Request Flow
 
-The AI pipeline is designed for speed, accuracy, and rate-limit resilience:
+The AI pipeline is designed for speed, privacy, and offline resilience:
 
 1. **User Request**: The user asks a question or requests a quiz.
 2. **Context Retrieval (RAG)**: If the query is scoped to a book, the backend runs a semantic search against local embeddings to retrieve the most relevant text chunks.
 3. **Web Grounding (Optional)**: If scoped to general knowledge, the system queries the Tavily API for real-time web context.
 4. **Prompt Assembly**: The retrieved context (book chunks or web snippets) is injected into a specialized system prompt (e.g., Socratic Tutor, Quiz Generator, or Flowchart Architect).
-5. **Model Routing & Fallback**: The request is routed to the Google Gemini API. If the primary model (e.g., `gemini-3.6-flash`) hits a rate limit (429) or quota error, the system automatically falls back to a chain of secondary models (like `gemini-3.5-flash` or `gemini-flash-latest`) with exponential backoff.
+5. **Local LLM Inference**: The request is routed to the local Ollama server at `http://localhost:11434/api/chat` using `qwen2.5:1.5b`.
 6. **Streaming Response**: The LLM output is streamed back to the React frontend via Server-Sent Events (SSE) for a real-time typing effect.
 
 ## RAG (Retrieval-Augmented Generation) Pipeline
-RoboLearn uses a custom-built, lightweight RAG implementation tailored for textbook analysis, operating without a dedicated vector database. Here is the detailed lifecycle of a document:
+RoboLearn uses a custom-built, lightweight RAG implementation tailored for textbook analysis, operating without a dedicated vector database:
 
 1. **Extraction**: When a user uploads a PDF or DOCX, the system parses the text using `PyMuPDF` or `python-docx`. If scanned images are detected, it falls back to `PyTesseract` for Optical Character Recognition (OCR).
-2. **Chunking**: The extracted text is aggressively split by double newlines (`\n\n`) into paragraphs and grouped into semantic windows of approximately 1,500 characters to maintain context boundaries.
-3. **Local Embedding (Privacy-First)**: The chunks are encoded into 384-dimensional dense vectors using a local `all-MiniLM-L6-v2` Sentence-Transformer model running on PyTorch. This ensures sensitive textbook data is never sent to an external embedding API.
-4. **Binary Storage (No `pgvector`)**: Instead of relying on specialized vector databases (like Pinecone) or PostgreSQL extensions (like `pgvector`), RoboLearn converts the 384-dimensional float arrays into binary bytes (`BYTEA`). These binary blobs are stored in a standard Supabase relational table (`chunk_embeddings`) alongside the raw text and character offsets.
-5. **In-Memory Retrieval**: During a query, all vectors for the active book are fetched from Supabase into the backend's memory and converted back into NumPy arrays (`np.frombuffer`). The system then ranks the chunks by calculating the Cosine Similarity (`np.dot`) between the query vector and the document vectors.
-6. **Fallback Mechanism**: If vector embeddings are unavailable or fail, the system employs a custom TF-IDF (Term Frequency-Inverse Document Frequency) keyword calculator to ensure queries still return relevant textbook passages.
-7. **Citation Assembly**: The top-ranked chunks are mapped back to chapter titles and estimated page numbers using character offsets, allowing the AI to cite exactly where it found the answer.
+2. **Chunking**: The extracted text is split into paragraphs and grouped into semantic windows of approximately 1,500 characters to maintain context boundaries.
+3. **Local Embedding (Privacy-First)**: The chunks are encoded into 384-dimensional dense vectors using a local `all-MiniLM-L6-v2` Sentence-Transformer model running on PyTorch.
+4. **Binary Storage (No `pgvector`)**: Instead of relying on external vector databases, RoboLearn stores 384-dimensional binary blobs (`BYTEA`) in a Supabase relational table (`chunk_embeddings`) alongside the raw text and character offsets.
+5. **In-Memory Retrieval**: During a query, vectors for the active book are fetched into memory, and the system ranks chunks by Cosine Similarity (`np.dot`).
+6. **Fallback Mechanism**: If vector embeddings are unavailable, the system employs a custom TF-IDF keyword calculator.
+7. **Citation Assembly**: The top-ranked chunks are mapped back to chapter titles and page numbers.
 
 ## Models Used
 
 | Model Name | Type | Purpose | Provider/Runtime | Local/Cloud |
 | :--- | :--- | :--- | :--- | :--- |
-| **Gemini 3.6 Flash** (and fallbacks) | LLM | Core reasoning, chat, quiz generation, formatting | Google Gemini API | Cloud |
+| **qwen2.5:1.5b** | LLM | Core reasoning, chat, quiz generation, formatting | Ollama (`http://localhost:11434`) | Local |
 | **all-MiniLM-L6-v2** | Embedding | Converts text chunks and queries to vectors | Sentence-Transformers (PyTorch) | Local |
-
-### Legacy Ollama Model Architecture (Deprecated)
-*Note: Early versions of this project utilized local Ollama inference. While traces of this setup remain in the `.bat` launcher scripts, the active Python backend has fully migrated to Google Gemini API.*
-
-In the original architecture, RoboLearn operated as a 100% offline system:
-- **Model**: `qwen2.5:1.5b` (chosen for its fast inference speed on consumer hardware without dedicated GPUs).
-- **Execution**: The local Ollama engine ran a server on port `11434`.
-- **Integration**: The Flask backend sent REST HTTP payloads to `http://localhost:11434/api/chat` for text generation.
-- **Why it was replaced**: The project migrated from Ollama to Gemini to resolve issues with streaming reliability, cut-off responses, context window limitations on complex textbooks, and to provide faster fallback models. Integrating Ollama is currently a planned roadmap feature as an optional offline fallback.
 
 ## System Architecture
 
@@ -90,15 +60,18 @@ flowchart TD
         API["API Endpoints"]
         RAG["Semantic RAG Engine"]
         Parser["Document Parsers & OCR"]
-        GeminiClient["Gemini API Client w/ Fallbacks"]
+        OllamaCaller["Ollama Client (localhost:11434)"]
+    end
+
+    subgraph LocalAI [Local Ollama Engine]
+        OllamaServer["qwen2.5:1.5b"]
     end
 
     subgraph Data [Supabase PostgreSQL]
         DB[("Relational DB + Binary Vectors")]
     end
 
-    subgraph External [External APIs]
-        GeminiCloud["Google Gemini LLM"]
+    subgraph External [Optional Cloud Services]
         TavilyCloud["Tavily Search API"]
         GoogleAuth["Google OAuth"]
     end
@@ -107,8 +80,8 @@ flowchart TD
     API <-->|Read/Write Queries| DB
     API -->|Parse| Parser
     API <-->|Vector Match / Dot Product| RAG
-    API <--> GeminiClient
-    GeminiClient <--> GeminiCloud
+    API <--> OllamaCaller
+    OllamaCaller <--> OllamaServer
     API <--> TavilyCloud
     ReactUI <--> GoogleAuth
 ```
@@ -119,7 +92,7 @@ flowchart TD
 | **Frontend** | React, Vite, Vanilla CSS, Lucide React (Icons) |
 | **Backend** | Python 3.11, Flask, NumPy |
 | **Database** | Supabase PostgreSQL, `psycopg2` |
-| **AI / NLP** | Google Gemini SDK, Sentence-Transformers, PyMuPDF, PyTesseract |
+| **AI / NLP** | Ollama (`qwen2.5:1.5b`), Sentence-Transformers (`all-MiniLM-L6-v2`), PyMuPDF, PyTesseract |
 | **Document Export** | `python-pptx`, `python-docx`, `openpyxl` |
 
 ## Project Structure
@@ -127,7 +100,7 @@ flowchart TD
 RoboLearn/
 ├── backend/
 │   ├── app.py                 # Main Flask server, API routes, RAG logic
-│   ├── config.py              # Gemini client config, caching, fallback chain
+│   ├── config.py              # Ollama caller, response caching, connection check
 │   ├── db.py                  # Supabase connection pool management
 │   ├── curriculum_final.py    # Document parsing, OCR, and curriculum scheduling
 │   ├── preload_model.py       # Downloads the Sentence-Transformer model
@@ -148,20 +121,27 @@ RoboLearn/
 ### Prerequisites
 - Node.js (v18+)
 - Python (3.10+)
+- [Ollama](https://ollama.com) installed and running locally
 - Supabase account (for PostgreSQL database)
-- Google Gemini API key
-- Tavily API key
+- Tavily API key (optional, for live web search)
 
-### 1. Clone the repository
+### 1. Install and Start Ollama
+```bash
+# Install Ollama (https://ollama.com), then pull the model and start the service:
+ollama pull qwen2.5:1.5b
+ollama serve
+```
+
+### 2. Clone the repository
 ```bash
 git clone https://github.com/your-username/RoboLearn.git
 cd RoboLearn
 ```
 
-### 2. Database Setup
+### 3. Database Setup
 Create a new Supabase project. You will need the connection URL and keys for the environment variables. The backend will automatically initialize tables on the first run.
 
-### 3. Backend Setup
+### 4. Backend Setup
 ```bash
 cd backend
 python -m venv venv
@@ -173,7 +153,7 @@ python preload_model.py
 ```
 Create a `.env` file in the `backend/` directory (see Configuration below).
 
-### 4. Frontend Setup
+### 5. Frontend Setup
 ```bash
 cd ../frontend
 npm install
@@ -188,8 +168,8 @@ FLASK_ENV=development
 SECRET_KEY=your_secure_random_string
 ALLOWED_ORIGINS=http://localhost:3000
 
-GEMINI_API_KEY=your_gemini_api_key
-GEMINI_MODEL=gemini-3.6-flash
+OLLAMA_URL=http://localhost:11434
+OLLAMA_MODEL=qwen2.5:1.5b
 TAVILY_API_KEY=your_tavily_api_key
 
 SUPABASE_URL=https://your-project-id.supabase.co
@@ -208,17 +188,25 @@ VITE_GOOGLE_CLIENT_ID=your_google_client_id.apps.googleusercontent.com
 
 ## Running the Project
 
-1. **Start the Backend** (Runs on port 5000):
+### One-Click Launch (Windows)
+Double-click `Run_Website.bat` to automatically verify dependencies, launch Ollama, start backend and frontend servers, and open the app at `http://localhost:3000`.
+
+### Manual Launch
+1. **Start Ollama** (if not already running):
+   ```bash
+   ollama serve
+   ```
+2. **Start the Backend** (Runs on port 5000):
    ```bash
    cd backend
    python app.py
    ```
-2. **Start the Frontend** (Runs on port 3000):
+3. **Start the Frontend** (Runs on port 3000):
    ```bash
    cd frontend
    npm run dev
    ```
-3. Open `http://localhost:3000` in your browser.
+4. Open `http://localhost:3000` in your browser.
 
 ## API Documentation (Core Routes)
 | Endpoint | Method | Description |
@@ -226,7 +214,7 @@ VITE_GOOGLE_CLIENT_ID=your_google_client_id.apps.googleusercontent.com
 | `/api/auth/signup` | POST | Registers a new user. |
 | `/api/user/books/upload` | POST | Uploads doc, parses text, chunks, and creates vector embeddings. |
 | `/ask_book_teacher_stream` | POST | RAG-powered chat endpoint (streams SSE response). |
-| `/generate_quiz` | POST | Prompts LLM to generate structured JSON quiz questions. |
+| `/generate_quiz` | POST | Prompts local Ollama to generate structured JSON quiz questions. |
 | `/api/quiz/save-attempt` | POST | Saves student answers, updates mastery scores and streaks. |
 | `/generate_curriculum` | POST | Extracts TOC and generates a time-mapped study schedule. |
 | `/export_ppt` | POST | Dynamically generates a downloadable `.pptx` presentation. |
@@ -241,18 +229,13 @@ RoboLearn uses a relational schema stored in Supabase PostgreSQL:
 
 ## Security & Privacy
 - **Authentication**: Stateful session cookies with strict SameSite policies. Passwords are cryptographically hashed via Werkzeug. (Google OAuth integration is also supported).
-- **Data Privacy**: Vector embeddings are computed *locally* using Sentence-Transformers, ensuring your raw textbook data isn't sent to an external embedding API. Only retrieved chunks necessary for context are sent to the Gemini API.
+- **Data Privacy**: Vector embeddings and LLM reasoning are computed locally via Ollama and Sentence-Transformers, ensuring your textbook and study data remains completely private.
 - **Error Handling**: Database foreign-key constraints prevent orphaned records. Guest users are prevented from crashing the database via specific graceful fallback handlers.
-
-## Limitations
-- **Rate Limits**: The Gemini free tier has strict rate limits. The backend handles this gracefully with exponential backoff and model-chain routing, but generation may pause during high traffic.
-- **Content Scoping**: Currently, AI Teacher, Quizzes, Flashcards, and PPT generation are open-topic/general knowledge by default, while the Study Schedule generator is scoped tightly to uploaded books.
 
 ## Future Roadmap
 - **Planned (v2)**: Custom In-House Voice Model. We are actively training a proprietary voice AI model from scratch. Dataset collection, chunking, and transcription are fully completed. Final model training is pending GPU availability and is expected to conclude within a month, slated for release in version 2. [View dataset & training progress evidence](https://drive.google.com/drive/folders/11RvKH2kJBrK2TQEl9T5h820knVsuwbPK?usp=sharing) *(folder includes raw audio samples, transcription pipeline scripts, and a chunking log)*.
 - **Planned**: Dedicated vector database (e.g., `pgvector`) migration for faster similarity search on massive datasets.
 - **Planned**: Comprehensive unit testing suite.
-- **Planned**: Integration of local open-weight LLMs (restoring the Ollama pathway as an offline alternative).
 
 ## License
 *No license has been specified for this project.*

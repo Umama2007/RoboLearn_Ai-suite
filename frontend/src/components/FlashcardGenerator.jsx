@@ -100,7 +100,7 @@ export default function FlashcardGenerator({ userId, initialSource = 'web_llm' }
             <CreditCard size={14} /> Interactive 3D Flip Flashcards
           </span>
           <span className="badge badge-emerald">
-            <Cpu size={14} /> Powered by Gemini AI
+            <Cpu size={14} /> Powered by Ollama (qwen2.5:1.5b)
           </span>
         </div>
         <h1 style={{ fontSize: '1.8rem', fontWeight: '800', marginBottom: '0.4rem' }}>

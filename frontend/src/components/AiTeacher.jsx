@@ -19,9 +19,9 @@ export default function AiTeacher({ userId }) {
   const [chatMessages, setChatMessages] = useState([
     {
       role: 'ai',
-      text: 'Hello! I am your AI Teacher powered by your local Gemini AI LLM and real-time Web Search. Ask me any question, request explanations, or explore study topics with live dual reference citations!',
+      text: 'Hello! I am your AI Teacher powered by your local Ollama LLM (qwen2.5:1.5b) and real-time Web Search. Ask me any question, request explanations, or explore study topics with live dual reference citations!',
       web_sources: [],
-      llm_reference: 'Gemini AI Parametric Weights & Internal Reasoning'
+      llm_reference: 'Ollama (qwen2.5:1.5b) Parametric Weights & Internal Reasoning'
     }
   ]);
   const [chatInput, setChatInput] = useState('');
@@ -69,7 +69,7 @@ export default function AiTeacher({ userId }) {
       role: 'ai',
       text: '',
       web_sources: [],
-      llm_reference: 'Gemini AI Parametric Weights & Internal Reasoning'
+      llm_reference: 'Ollama (qwen2.5:1.5b) Parametric Weights & Internal Reasoning'
     };
 
     setChatMessages((prev) => [...prev, userMsgObj, initialAiMsgObj]);
@@ -231,7 +231,7 @@ export default function AiTeacher({ userId }) {
         role: 'ai',
         text: 'Chat history cleared. Ask me any question to begin!',
         web_sources: [],
-        llm_reference: 'Gemini AI Parametric Base'
+        llm_reference: 'Ollama (qwen2.5:1.5b) Parametric Base'
       }
     ]);
   };
@@ -264,7 +264,7 @@ export default function AiTeacher({ userId }) {
               alignItems: 'center',
               gap: '0.3rem'
             }}>
-              <Cpu size={12} /> Local Gemini AI
+              <Cpu size={12} /> Local Ollama (qwen2.5:1.5b)
             </span>
           </div>
         </div>
@@ -382,7 +382,7 @@ export default function AiTeacher({ userId }) {
                 }}>
                   {msg.role === 'ai' && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: '800', color: msg.isError ? '#f87171' : '#4FD1C5', marginBottom: '0.4rem', fontSize: '0.825rem' }}>
-                      <Bot size={15} /> {msg.isError ? 'System Warning' : 'AI Teacher (Gemini AI)'}
+                      <Bot size={15} /> {msg.isError ? 'System Warning' : 'AI Teacher (qwen2.5:1.5b)'}
                     </div>
                   )}
 
@@ -429,7 +429,7 @@ export default function AiTeacher({ userId }) {
                         LLM Knowledge Base
                       </div>
                       <div style={{ color: 'rgba(255, 255, 255, 0.85)', fontSize: '0.775rem', marginTop: '0.1rem' }}>
-                        {msg.llm_reference || 'Gemini AI Parametric Weights & Internal Reasoning'}
+                        {msg.llm_reference || 'Ollama (qwen2.5:1.5b) Parametric Weights & Internal Reasoning'}
                       </div>
                     </div>
                   </div>
@@ -529,7 +529,7 @@ export default function AiTeacher({ userId }) {
               outline: 'none',
               transition: 'all 0.25s ease'
             }}
-            placeholder={webSearchEnabled ? "Ask AI Teacher anything (Gemini AI + Web Search)..." : "Ask AI Teacher anything (Gemini AI)..."}
+            placeholder={webSearchEnabled ? "Ask AI Teacher anything (qwen2.5:1.5b + Web Search)..." : "Ask AI Teacher anything (qwen2.5:1.5b)..."}
             value={chatInput}
             onChange={(e) => setChatInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSendChat()}

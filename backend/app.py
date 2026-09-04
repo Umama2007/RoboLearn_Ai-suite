@@ -231,8 +231,8 @@ def get_latest_quiz(user_id):
         print(f"DATABASE WARNING [get_latest_quiz]: Failed to fetch latest quiz for user '{user_id}': {e}")
         return None
 
-# ------------- GEMINI API & WEB SEARCH HELPERS -------------
-from config import GEMINI_API_KEY, GEMINI_MODEL, call_gemini, stream_gemini
+# ------------- OLLAMA LOCAL AI & WEB SEARCH HELPERS -------------
+from config import OLLAMA_MODEL, call_ollama, stream_ollama, check_ollama_connection
 
 def perform_web_search(query, max_results=3):
     """
@@ -632,7 +632,7 @@ def excerpt_search(book_text, query, ctx_chars=1200, book_id=None):
 def home():
     return jsonify({
         "app": "Advance Education System API Backend",
-        "model": GEMINI_MODEL,
+        "model": OLLAMA_MODEL,
         "status": "online"
     })
 
@@ -1380,7 +1380,7 @@ def teach_topic():
         book_text, past_text, _ = get_memory(user_id)
         add_message(user_id, "user", f"Teach topic: {topic}")
         
-        system_prompt = ("You are a patient, friendly teacher powered by Gemini AI. Teach the topic clearly. "
+        system_prompt = ("You are a patient, friendly teacher powered by local AI. Teach the topic clearly. "
                          "Provide: 1) Clear explanation, 2) Two short examples, 3) One practice task.\n"
                          "Include a section '### 🧠 LLM Knowledge & Concept References' at the bottom.")
         messages = [{"role":"system","content":system_prompt}]
@@ -1398,7 +1398,7 @@ def teach_topic():
         history = get_history(user_id, limit=10)
         messages.extend(history)
         messages.append({"role":"user","content":f"Please teach: {topic}"})
-        reply = call_gemini(messages, max_tokens=350, temperature=0.25)
+        reply = call_ollama(messages, max_tokens=350, temperature=0.25)
 
         add_message(user_id, "assistant", reply)
         return jsonify({"reply": reply, "web_sources": web_sources})
@@ -1417,7 +1417,7 @@ def ai_chat():
         add_message(user_id, "user", message)
         
         system_prompt = (
-            "You are an expert, patient AI teacher powered by Gemini AI. "
+            "You are an expert, patient AI teacher powered by local AI. "
             "Answer the user's question clearly and concisely with key points.\n"
             "At the end of your response, ALWAYS include a dedicated section titled:\n"
             "### 🧠 LLM Knowledge & Concept References\n"
@@ -1433,13 +1433,13 @@ def ai_chat():
 
         messages.extend(get_history(user_id, limit=8))
         messages.append({"role":"user","content":message})
-        reply = call_gemini(messages, max_tokens=350, temperature=0.2)
+        reply = call_ollama(messages, max_tokens=350, temperature=0.2)
         add_message(user_id, "assistant", reply)
 
         return jsonify({
             "reply": reply,
             "web_sources": web_sources,
-            "llm_reference": "Gemini AI Parametric Weights & Internal Reasoning"
+            "llm_reference": f"Ollama ({OLLAMA_MODEL}) Parametric Weights & Internal Reasoning"
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -1472,7 +1472,7 @@ def ai_chat_stream():
         add_message(user_id, "user", message)
 
         system_prompt = (
-            "You are an expert, patient AI teacher powered by Gemini AI. "
+            "You are an expert, patient AI teacher powered by local AI. "
             "Answer the user's question clearly and concisely with key points.\n"
             "At the end of your response, ALWAYS include a dedicated section titled:\n"
             "### 🧠 LLM Knowledge & Concept References\n"
@@ -1491,10 +1491,10 @@ def ai_chat_stream():
         messages.append({"role":"user","content":user_content})
 
         def generate():
-            yield f"data: {json.dumps({'type':'sources', 'web_sources': web_sources, 'llm_reference':'Gemini AI Parametric Weights & Internal Reasoning'})}\n\n"
+            yield f"data: {json.dumps({'type':'sources', 'web_sources': web_sources, 'llm_reference': f'Ollama ({OLLAMA_MODEL}) Parametric Weights & Internal Reasoning'})}\n\n"
             full_text = ""
             try:
-                for text_chunk in stream_gemini(messages, max_tokens=1000, temperature=0.2):
+                for text_chunk in stream_ollama(messages, max_tokens=1000, temperature=0.2):
                     if text_chunk:
                         full_text += text_chunk
                         yield f"data: {json.dumps({'type':'text', 'content': text_chunk})}\n\n"
@@ -1572,7 +1572,7 @@ def ask_book_teacher_stream():
             yield f"data: {json.dumps({'type':'citation', 'citation': citation})}\n\n"
             full_text = ""
             try:
-                for text_chunk in stream_gemini(messages, max_tokens=1000, temperature=0.1):
+                for text_chunk in stream_ollama(messages, max_tokens=1000, temperature=0.1):
                     if text_chunk:
                         full_text += text_chunk
                         yield f"data: {json.dumps({'type':'text', 'content': text_chunk})}\n\n"
@@ -1606,7 +1606,7 @@ def generate_flashcards():
             user_prompt = f"Topic: {topic}"
 
         system_prompt = (
-            f"You are an expert flashcard generator powered by Gemini AI. "
+            f"You are an expert flashcard generator powered by local AI. "
             f"Generate exactly {count} educational flashcard Q&A pairs for the topic: '{topic}'.\n"
             f"Output ONLY a valid JSON array of objects, where each object has key 'question' and key 'answer'.\n"
             f"Do not include any explanation outside the JSON array.\n"
@@ -1617,7 +1617,7 @@ def generate_flashcards():
             {"role": "user", "content": user_prompt}
         ]
 
-        raw_llm = call_gemini(messages, max_tokens=1000, temperature=0.2, response_json=True)
+        raw_llm = call_ollama(messages, max_tokens=1000, temperature=0.2, response_json=True)
 
         
         json_match = re.search(r'\[.*\]', raw_llm, re.DOTALL)
@@ -1794,7 +1794,7 @@ def generate_quiz():
             {"role": "user", "content": user_prompt_content}
         ]
 
-        raw = call_gemini(messages, max_tokens=1500, temperature=0.3, response_json=True)
+        raw = call_ollama(messages, max_tokens=1500, temperature=0.3, response_json=True)
         clean_raw = re.sub(r'```(?:json)?', '', raw).strip()
         start = clean_raw.find("{")
         end = clean_raw.rfind("}")
@@ -1857,7 +1857,7 @@ def evaluate_short_answer_with_llm(question, expected, given):
     if not given.strip():
         return False
     
-    # Use Gemini API to grade the open-ended response
+    # Use Ollama local LLM to grade the open-ended response
     messages = [
         {
             "role": "system", 
@@ -1875,7 +1875,7 @@ def evaluate_short_answer_with_llm(question, expected, given):
         }
     ]
     try:
-        response = call_gemini(messages, max_tokens=10, temperature=0.1).strip().upper()
+        response = call_ollama(messages, max_tokens=10, temperature=0.1).strip().upper()
         if "YES" in response:
             return True
     except Exception as e:
@@ -1922,7 +1922,7 @@ def submit_quiz():
             messages = [{"role":"system","content":system_prompt},
                         {"role":"system","content":"Material (truncated):\n" + (book_text[:4000] if book_text else "General knowledge")},
                         {"role":"user","content":"Missed:\n" + miss_summary}]
-            reteach_text = call_gemini(messages, max_tokens=600, temperature=0.2)
+            reteach_text = call_ollama(messages, max_tokens=600, temperature=0.2)
         return jsonify({"score": correct, "total": total, "percentage": percent, "details": details, "reteach": reteach_text})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -2233,7 +2233,7 @@ def generate_ppt_slides():
         material = excerpt_search(book_text, topic, ctx_chars=2000) if book_text else topic
 
         system_prompt = (
-            f"You are an expert presentation designer powered by Gemini AI. "
+            f"You are an expert presentation designer powered by local AI. "
             f"Generate exactly {count} presentation slides for the topic: '{topic}'.\n"
             f"Output ONLY a valid JSON array of objects, where each object has keys: "
             f"'title', 'subtitle', and 'bullets' (a list of 3 bullet point strings).\n"
@@ -2246,7 +2246,7 @@ def generate_ppt_slides():
             {"role": "user", "content": user_prompt}
         ]
 
-        raw_llm = call_gemini(messages, max_tokens=1000, temperature=0.2, response_json=True)
+        raw_llm = call_ollama(messages, max_tokens=1000, temperature=0.2, response_json=True)
         json_match = re.search(r'\[.*\]', raw_llm, re.DOTALL)
         if json_match:
             try:
@@ -2330,7 +2330,7 @@ def generate_flowchart():
         material = excerpt_search(book_text, topic, ctx_chars=2000) if book_text else topic
 
         system_prompt = (
-            f"You are a professional flowchart and system diagram architect powered by Gemini AI.\n"
+            f"You are a professional flowchart and system diagram architect powered by local AI.\n"
             f"Generate a professional, high-quality, valid Mermaid.js flowchart for topic: '{topic}'.\n\n"
             f"Mermaid Syntax Rules:\n"
             f"1. Must start with 'flowchart {direction}' on the first line.\n"
@@ -2364,7 +2364,7 @@ def generate_flowchart():
             {"role": "user", "content": user_prompt}
         ]
 
-        raw_llm = call_gemini(messages, max_tokens=600, temperature=0.2)
+        raw_llm = call_ollama(messages, max_tokens=600, temperature=0.2)
         
         mermaid_code = ""
         if "flowchart" in raw_llm:
@@ -2424,7 +2424,7 @@ def socratic_hint():
         material = excerpt_search(book_text, question, ctx_chars=2000) if book_text else question
 
         system_prompt = (
-            "You are a master Socratic AI Tutor powered by Gemini AI. "
+            "You are a master Socratic AI Tutor powered by local AI. "
             "Your goal is to guide the student to master the concept through Socratic inquiry.\n"
             "DO NOT just give away the answer! Instead:\n"
             "1. Evaluate their response gently (praise effort, highlight what was accurate).\n"
@@ -2443,7 +2443,7 @@ def socratic_hint():
             {"role": "user", "content": user_prompt}
         ]
 
-        tutor_response = call_gemini(messages, max_tokens=350, temperature=0.3)
+        tutor_response = call_ollama(messages, max_tokens=350, temperature=0.3)
         return jsonify({
             "success": True,
             "socratic_response": tutor_response
@@ -2462,6 +2462,7 @@ if __name__ == "__main__":
         get_embedding_model()
     except Exception as e:
         print("Warning: Could not pre-load embedding model:", e)
-    print("Gemini AI Model initialized:", GEMINI_MODEL)
+    check_ollama_connection()
+    print("Ollama Local AI Model initialized:", OLLAMA_MODEL)
     app.run(debug=True, use_reloader=False, threaded=True)
 

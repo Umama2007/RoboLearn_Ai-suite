@@ -8,8 +8,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434").rstrip("/")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:1.5b")
+OLLAMA_CHAT_ENDPOINT = f"{OLLAMA_URL}/api/chat"
+OLLAMA_TAGS_ENDPOINT = f"{OLLAMA_URL}/api/tags"
 
 # ------------- IN-MEMORY RESPONSE CACHE (LRU + TTL) -------------
 class ResponseCache:
@@ -19,12 +21,12 @@ class ResponseCache:
         self.cache = {}
         self.lock = Lock()
 
-    def _make_key(self, prompt, sys_inst, temp, response_json):
-        raw = f"{prompt}|{sys_inst}|{temp}|{response_json}"
+    def _make_key(self, prompt_repr, sys_inst, temp, response_json):
+        raw = f"{prompt_repr}|{sys_inst}|{temp}|{response_json}"
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
-    def get(self, prompt, sys_inst, temp, response_json):
-        key = self._make_key(prompt, sys_inst, temp, response_json)
+    def get(self, prompt_repr, sys_inst, temp, response_json):
+        key = self._make_key(prompt_repr, sys_inst, temp, response_json)
         with self.lock:
             if key in self.cache:
                 entry = self.cache[key]
@@ -34,10 +36,10 @@ class ResponseCache:
                     del self.cache[key]
         return None
 
-    def set(self, prompt, sys_inst, temp, response_json, response):
+    def set(self, prompt_repr, sys_inst, temp, response_json, response):
         if not response or len(str(response).strip()) < 5:
             return
-        key = self._make_key(prompt, sys_inst, temp, response_json)
+        key = self._make_key(prompt_repr, sys_inst, temp, response_json)
         with self.lock:
             if len(self.cache) >= self.max_size:
                 oldest_key = min(self.cache, key=lambda k: self.cache[k]["timestamp"])
@@ -48,407 +50,167 @@ class ResponseCache:
             }
 
 _ai_cache = ResponseCache()
-_genai_clients = {}
 
-def get_api_keys():
-    keys_str = os.getenv("GEMINI_API_KEYS") or os.getenv("GEMINI_API_KEY") or GEMINI_API_KEY
-    if not keys_str:
-        return []
-    return [k.strip() for k in keys_str.split(",") if k.strip()]
 
-def get_groq_api_keys():
-    keys_str = os.getenv("GROQ_API_KEYS") or os.getenv("GROQ_API_KEY") or ""
-    if not keys_str:
-        return []
-    return [k.strip() for k in keys_str.split(",") if k.strip()]
-
-def get_openrouter_api_keys():
-    keys_str = os.getenv("OPENROUTER_API_KEYS") or os.getenv("OPENROUTER_API_KEY") or ""
-    if not keys_str:
-        return []
-    return [k.strip() for k in keys_str.split(",") if k.strip()]
-
-def get_gemini_client(api_key=None):
-    global _genai_clients
-    keys = get_api_keys()
-    target_key = api_key or (keys[0] if keys else "")
-    if not target_key:
-        raise RuntimeError("GEMINI_API_KEY environment variable is missing.")
-    if target_key not in _genai_clients:
-        try:
-            from google import genai
-            _genai_clients[target_key] = genai.Client(api_key=target_key)
-        except Exception as e:
-            raise RuntimeError(f"Failed to initialize Gemini API client: {str(e)}")
-    return _genai_clients[target_key]
-
-def get_fallback_models():
-    primary = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
-    defaults = [primary, "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-flash-latest"]
-    seen = set()
-    dedup = []
-    for m in defaults:
-        if m and m not in seen:
-            seen.add(m)
-            dedup.append(m)
-    return dedup
-
-ACCOUNT_QUOTA_MARKERS = [
-    "billing",
-    "insufficient_quota",
-    "exceeded your current quota",
-    "generaterequestsperdayperprojectpermodel-freetier",
-    "quota_metric",
-    "perday",
-    "projectpermodel",
-    "free_tier",
-    "limit_exceeded",
-    "daily_quota",
-    "quota_exceeded",
-    "api_key_invalid",
-    "invalid_api_key",
-    "api key not valid",
-    "unauthenticated",
-    "permission_denied",
-    "invalid_argument"
-]
-
-def _is_account_quota_exhausted(err_str: str) -> bool:
+def check_ollama_connection():
     """
-    Distinguishes account/project-level quota exhaustion and invalid API keys (key is dead)
-    from transient per-model rate limits (worth falling back to next model on same key).
+    Checks if the local Ollama server is reachable and logs a clear status message.
     """
-    if not err_str:
-        return False
-    lower_err = err_str.lower()
-    return any(marker in lower_err for marker in ACCOUNT_QUOTA_MARKERS)
-
-def _format_prompt(messages_or_prompt, system_instruction):
-    sys_inst = system_instruction or ""
-    contents = []
-    if isinstance(messages_or_prompt, list):
-        for msg in messages_or_prompt:
-            role = msg.get("role")
-            content = msg.get("content", "")
-            if role == "system":
-                if sys_inst:
-                    sys_inst += "\n\n" + content
-                else:
-                    sys_inst = content
-            elif role in ["user", "human"]:
-                contents.append(content)
-            elif role in ["assistant", "ai"]:
-                contents.append(f"Assistant: {content}")
+    try:
+        res = requests.get(OLLAMA_TAGS_ENDPOINT, timeout=3.0)
+        if res.status_code == 200:
+            data = res.json()
+            models = [m.get("name", "") for m in data.get("models", [])]
+            print(f"[Ollama] Connected to Ollama server at {OLLAMA_URL}.")
+            # Check if current model or prefix matches
+            model_matched = any(
+                m == OLLAMA_MODEL or m.startswith(f"{OLLAMA_MODEL}:") or m.startswith(OLLAMA_MODEL)
+                for m in models
+            )
+            if model_matched:
+                print(f"[Ollama] Active model '{OLLAMA_MODEL}' is ready.")
             else:
-                contents.append(content)
-        prompt_input = "\n\n".join(contents) if contents else ""
-    else:
-        prompt_input = str(messages_or_prompt)
-    return prompt_input, sys_inst
+                print(f"[Ollama] WARNING: Model '{OLLAMA_MODEL}' was not found in installed Ollama models: {models}. Run `ollama pull {OLLAMA_MODEL}`.")
+            return True
+        else:
+            print(f"[Ollama] WARNING: Ollama returned status code {res.status_code}.")
+            return False
+    except requests.exceptions.RequestException:
+        print(f"[Ollama] ERROR: Ollama server not reachable at {OLLAMA_URL} — make sure `ollama serve` is running and {OLLAMA_MODEL} is pulled.")
+        return False
 
-def _build_openai_messages(messages_or_prompt, system_instruction):
-    messages = []
+
+def _format_messages(messages_or_prompt, system_instruction=None):
+    """
+    Normalizes inputs (list of dicts or string) into Ollama chat format:
+    [{"role": "system"|"user"|"assistant", "content": "..."}]
+    """
+    formatted = []
+    
     if system_instruction:
-        messages.append({"role": "system", "content": system_instruction})
+        formatted.append({"role": "system", "content": str(system_instruction)})
+
     if isinstance(messages_or_prompt, list):
         for msg in messages_or_prompt:
             role = msg.get("role", "user")
             content = msg.get("content", "")
-            if role in ["user", "human"]:
-                messages.append({"role": "user", "content": content})
-            elif role in ["assistant", "ai"]:
-                messages.append({"role": "assistant", "content": content})
-            elif role == "system" and not system_instruction:
-                messages.append({"role": "system", "content": content})
+            # Normalize legacy role names
+            if role in ["human"]:
+                role = "user"
+            elif role in ["ai"]:
+                role = "assistant"
+            
+            # If system_instruction was provided separately and there's a system message, combine or append
+            if role == "system" and system_instruction:
+                # Merge into existing first system message or append
+                if formatted and formatted[0]["role"] == "system":
+                    formatted[0]["content"] += "\n\n" + str(content)
+                    continue
+            formatted.append({"role": role, "content": str(content)})
+    elif isinstance(messages_or_prompt, str):
+        formatted.append({"role": "user", "content": messages_or_prompt})
     else:
-        messages.append({"role": "user", "content": str(messages_or_prompt)})
-    return messages
+        formatted.append({"role": "user", "content": str(messages_or_prompt)})
 
-def _call_groq_fallback(messages, temperature=0.2, max_tokens=1000, response_json=False):
-    groq_keys = get_groq_api_keys()
-    if not groq_keys:
-        return None
-    models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"]
-    for key in groq_keys:
-        headers = {
-            "Authorization": f"Bearer {key}",
-            "Content-Type": "application/json"
-        }
-        for model in models:
-            payload = {
-                "model": model,
-                "messages": messages,
-                "temperature": temperature,
-                "max_tokens": max_tokens
-            }
-            if response_json:
-                payload["response_format"] = {"type": "json_object"}
-            try:
-                res = requests.post("https://api.groq.com/openai/v1/chat/completions", json=payload, headers=headers, timeout=20)
-                if res.status_code == 200:
-                    data = res.json()
-                    content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-                    if content:
-                        return content
-            except Exception:
-                continue
-    return None
+    return formatted
 
-def _call_openrouter_fallback(messages, temperature=0.2, max_tokens=1000, response_json=False):
-    or_keys = get_openrouter_api_keys()
-    if not or_keys:
-        return None
-    models = ["google/gemini-2.5-flash", "meta-llama/llama-3.3-70b-instruct", "deepseek/deepseek-chat"]
-    for key in or_keys:
-        headers = {
-            "Authorization": f"Bearer {key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://robolearn.ai",
-            "X-Title": "RoboLearn AI"
-        }
-        for model in models:
-            payload = {
-                "model": model,
-                "messages": messages,
-                "temperature": temperature,
-                "max_tokens": max_tokens
-            }
-            if response_json:
-                payload["response_format"] = {"type": "json_object"}
-            try:
-                res = requests.post("https://openrouter.ai/api/v1/chat/completions", json=payload, headers=headers, timeout=25)
-                if res.status_code == 200:
-                    data = res.json()
-                    content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-                    if content:
-                        return content
-            except Exception:
-                continue
-    return None
 
-def call_gemini(messages_or_prompt, system_instruction=None, max_tokens=1000, temperature=0.2, response_json=False, bypass_cache=False):
+def call_ollama(messages_or_prompt, system_instruction=None, max_tokens=1000, temperature=0.2, response_json=False, bypass_cache=False):
     """
-    Unified caller for AI with response caching, Gemini key rotation, and Groq / OpenRouter failover.
+    Executes a chat completion against the local Ollama instance at http://localhost:11434/api/chat.
     """
-    prompt_input, sys_inst = _format_prompt(messages_or_prompt, system_instruction)
+    messages = _format_messages(messages_or_prompt, system_instruction)
+    cache_key_prompt = json.dumps(messages, sort_keys=True)
 
-    # 1. Check response cache first
+    # 1. Check in-memory cache
     if not bypass_cache:
-        cached = _ai_cache.get(prompt_input, sys_inst, temperature, response_json)
+        cached = _ai_cache.get(cache_key_prompt, system_instruction or "", temperature, response_json)
         if cached:
             return cached
 
-    # Tier 1: Try Gemini Keys
-    api_keys = get_api_keys()
-    fallback_models = get_fallback_models()
-    last_error = None
+    payload = {
+        "model": OLLAMA_MODEL,
+        "messages": messages,
+        "stream": False,
+        "options": {
+            "temperature": float(temperature),
+            "num_predict": int(max_tokens),
+            "num_ctx": 1536
+        }
+    }
+    if response_json:
+        payload["format"] = "json"
 
-    if api_keys:
-        from google.genai import types
-        for key in api_keys:
-            try:
-                client = get_gemini_client(api_key=key)
-            except Exception as ke:
-                last_error = ke
-                continue
+    try:
+        response = requests.post(
+            OLLAMA_CHAT_ENDPOINT,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=120
+        )
+        response.raise_for_status()
+        data = response.json()
+        content = data.get("message", {}).get("content", "")
 
-<<<<<<< HEAD
-            for model_name in fallback_models:
-                config_args = {
-                    "temperature": temperature,
-                    "max_output_tokens": max_tokens
-                }
-                if sys_inst:
-                    config_args["system_instruction"] = sys_inst
-                if response_json:
-                    config_args["response_mime_type"] = "application/json"
-=======
-        account_key_dead = False
-        for model_name in fallback_models:
-            if account_key_dead:
-                break
+        if not bypass_cache and content:
+            _ai_cache.set(cache_key_prompt, system_instruction or "", temperature, response_json, content)
 
-            config_args = {
-                "temperature": temperature,
-                "max_output_tokens": max_tokens
-            }
-            if sys_inst:
-                config_args["system_instruction"] = sys_inst
-            if response_json:
-                config_args["response_mime_type"] = "application/json"
->>>>>>> 491f35ec37579e7dcbd0e46f9255e54c3264db88
+        return content
+    except requests.exceptions.ConnectionError:
+        error_msg = f"Ollama server not reachable at {OLLAMA_URL} — make sure `ollama serve` is running and {OLLAMA_MODEL} is pulled."
+        print(f"[Ollama Error] {error_msg}")
+        raise RuntimeError(error_msg)
+    except requests.exceptions.RequestException as e:
+        error_msg = f"Failed to communicate with local Ollama model '{OLLAMA_MODEL}': {str(e)}"
+        print(f"[Ollama Error] {error_msg}")
+        raise RuntimeError(error_msg)
 
-                config = types.GenerateContentConfig(**config_args)
 
-<<<<<<< HEAD
-                for attempt in range(2):
-                    try:
-                        response = client.models.generate_content(
-                            model=model_name,
-                            contents=prompt_input,
-                            config=config
-                        )
-                        res_text = response.text or ""
-                        if res_text:
-                            if not bypass_cache:
-                                _ai_cache.set(prompt_input, sys_inst, temperature, response_json, res_text)
-                            return res_text
-                    except Exception as e:
-                        last_error = e
-                        err_str = str(e)
-                        if "429" in err_str or "QUOTA" in err_str.upper() or "RESOURCE_EXHAUSTED" in err_str.upper():
-                            time.sleep(0.5 * (attempt + 1))
-                            continue
-                        break
-
-    # Tier 2: Try Groq Failover Pool
-    openai_msgs = _build_openai_messages(messages_or_prompt, system_instruction)
-    groq_res = _call_groq_fallback(openai_msgs, temperature, max_tokens, response_json)
-    if groq_res:
-        if not bypass_cache:
-            _ai_cache.set(prompt_input, sys_inst, temperature, response_json, groq_res)
-        return groq_res
-
-    # Tier 3: Try OpenRouter Failover Pool
-    or_res = _call_openrouter_fallback(openai_msgs, temperature, max_tokens, response_json)
-    if or_res:
-        if not bypass_cache:
-            _ai_cache.set(prompt_input, sys_inst, temperature, response_json, or_res)
-        return or_res
-=======
-            for attempt in range(2):
-                try:
-                    response = client.models.generate_content(
-                        model=model_name,
-                        contents=prompt_input,
-                        config=config
-                    )
-                    res_text = response.text or ""
-                    if res_text:
-                        if not bypass_cache:
-                            _ai_cache.set(prompt_input, sys_inst, temperature, response_json, res_text)
-                        return res_text
-                except Exception as e:
-                    last_error = e
-                    err_str = str(e)
-                    if "429" in err_str or "QUOTA" in err_str.upper() or "RESOURCE_EXHAUSTED" in err_str.upper():
-                        if _is_account_quota_exhausted(err_str):
-                            account_key_dead = True
-                            break
-                        time.sleep(1.0 * (2 ** attempt))
-                        continue
-                    elif _is_account_quota_exhausted(err_str):
-                        account_key_dead = True
-                        break
-                    break
->>>>>>> 491f35ec37579e7dcbd0e46f9255e54c3264db88
-
-    raise RuntimeError(f"All AI model quotas are temporarily busy. Please wait a moment and try again. ({str(last_error)})")
-
-def stream_gemini(messages_or_prompt, system_instruction=None, max_tokens=1000, temperature=0.2):
+def stream_ollama(messages_or_prompt, system_instruction=None, max_tokens=1000, temperature=0.2):
     """
-    Resilient streaming generator for Google Gemini API with fallback model chain and Groq fallback.
+    Streams chat completion chunks from the local Ollama instance at http://localhost:11434/api/chat.
+    Yields string text chunks as they arrive.
     """
-    prompt_input, sys_inst = _format_prompt(messages_or_prompt, system_instruction)
-    from google.genai import types
+    messages = _format_messages(messages_or_prompt, system_instruction)
 
-    api_keys = get_api_keys()
-    fallback_models = get_fallback_models()
-    last_error = None
+    payload = {
+        "model": OLLAMA_MODEL,
+        "messages": messages,
+        "stream": True,
+        "options": {
+            "temperature": float(temperature),
+            "num_predict": int(max_tokens),
+            "num_ctx": 1536
+        }
+    }
 
-    if api_keys:
-        for key in api_keys:
-            try:
-                client = get_gemini_client(api_key=key)
-            except Exception as ke:
-                last_error = ke
+    try:
+        response = requests.post(
+            OLLAMA_CHAT_ENDPOINT,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            stream=True,
+            timeout=120
+        )
+        response.raise_for_status()
+
+        for line in response.iter_lines(decode_unicode=True):
+            if not line:
                 continue
-
-<<<<<<< HEAD
-            for model_name in fallback_models:
-                config_args = {
-                    "temperature": temperature,
-                    "max_output_tokens": max_tokens
-                }
-                if sys_inst:
-                    config_args["system_instruction"] = sys_inst
-=======
-        account_key_dead = False
-        for model_name in fallback_models:
-            if account_key_dead:
-                break
-
-            config_args = {
-                "temperature": temperature,
-                "max_output_tokens": max_tokens
-            }
-            if sys_inst:
-                config_args["system_instruction"] = sys_inst
->>>>>>> 491f35ec37579e7dcbd0e46f9255e54c3264db88
-
-                config = types.GenerateContentConfig(**config_args)
-
-<<<<<<< HEAD
-                for attempt in range(2):
-                    yielded = False
-                    try:
-                        response_stream = client.models.generate_content_stream(
-                            model=model_name,
-                            contents=prompt_input,
-                            config=config
-                        )
-                        for chunk in response_stream:
-                            if chunk.text:
-                                yielded = True
-                                yield chunk.text
-                        if yielded:
-                            return
-                    except Exception as e:
-                        last_error = e
-                        if yielded:
-                            raise RuntimeError(f"Streaming output interrupted mid-response: {str(e)}")
-                        err_str = str(e)
-                        if "429" in err_str or "QUOTA" in err_str.upper() or "RESOURCE_EXHAUSTED" in err_str.upper():
-                            time.sleep(0.5 * (attempt + 1))
-                            continue
-                        break
-
-    # Fallback to Groq if Gemini streams are busy
-    openai_msgs = _build_openai_messages(messages_or_prompt, system_instruction)
-    fallback_text = _call_groq_fallback(openai_msgs, temperature, max_tokens) or _call_openrouter_fallback(openai_msgs, temperature, max_tokens)
-    if fallback_text:
-        yield fallback_text
-        return
-=======
-            for attempt in range(2):
-                yielded = False
-                try:
-                    response_stream = client.models.generate_content_stream(
-                        model=model_name,
-                        contents=prompt_input,
-                        config=config
-                    )
-                    for chunk in response_stream:
-                        if chunk.text:
-                            yielded = True
-                            yield chunk.text
-                    if yielded:
-                        return
-                except Exception as e:
-                    last_error = e
-                    if yielded:
-                        raise RuntimeError(f"Streaming output interrupted mid-response: {str(e)}")
-                    err_str = str(e)
-                    if "429" in err_str or "QUOTA" in err_str.upper() or "RESOURCE_EXHAUSTED" in err_str.upper():
-                        if _is_account_quota_exhausted(err_str):
-                            account_key_dead = True
-                            break
-                        time.sleep(1.5 * (2 ** attempt))
-                        continue
-                    elif _is_account_quota_exhausted(err_str):
-                        account_key_dead = True
-                        break
+            try:
+                chunk = json.loads(line)
+                content = chunk.get("message", {}).get("content", "")
+                if content:
+                    yield content
+                if chunk.get("done", False):
                     break
->>>>>>> 491f35ec37579e7dcbd0e46f9255e54c3264db88
-
-    raise RuntimeError(f"All AI streaming services are temporarily busy. Please try again. ({str(last_error)})")
+            except json.JSONDecodeError:
+                continue
+    except requests.exceptions.ConnectionError:
+        error_msg = f"Ollama server not reachable at {OLLAMA_URL} — make sure `ollama serve` is running and {OLLAMA_MODEL} is pulled."
+        print(f"[Ollama Stream Error] {error_msg}")
+        raise RuntimeError(error_msg)
+    except requests.exceptions.RequestException as e:
+        error_msg = f"Streaming interrupted from local Ollama model '{OLLAMA_MODEL}': {str(e)}"
+        print(f"[Ollama Stream Error] {error_msg}")
+        raise RuntimeError(error_msg)
