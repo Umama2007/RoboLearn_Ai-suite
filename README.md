@@ -96,7 +96,8 @@ flowchart TD
 | **Document Export** | `python-pptx`, `python-docx`, `openpyxl` |
 
 ## Technical Documentation
-- **[TECHNICAL_IMPLEMENTATION.md](file:///c:/Users/MC/Desktop/RoboLearn_Ai%20suite/TECHNICAL_IMPLEMENTATION.md)**: Full architecture migration report detailing the removal of Gemini API keys, local Ollama integration, error handling, function signatures, and setup.
+- **[ARCHITECTURE.md](file:///c:/Users/MC/Desktop/RoboLearn_Ai%20suite/ARCHITECTURE.md)**: Comprehensive, end-to-end visual architecture diagram suite with Mermaid charts covering layered systems, RAG sequence flows, database ER schemas, authentication lifecycles, and local deployment topology.
+- **[TECHNICAL_IMPLEMENTATION.md](file:///c:/Users/MC/Desktop/RoboLearn_Ai%20suite/TECHNICAL_IMPLEMENTATION.md)**: Architecture migration report detailing the removal of Gemini API keys, local Ollama integration, error handling, function signatures, and setup.
 - **[TECHNICAL_OVERVIEW.md](file:///c:/Users/MC/Desktop/RoboLearn_Ai%20suite/TECHNICAL_OVERVIEW.md)**: Deep-dive architecture overview, RAG vector pipeline, database schemas, and request flow.
 
 ## Project Structure
