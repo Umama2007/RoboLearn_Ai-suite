@@ -93,6 +93,36 @@ def get_fallback_models():
             dedup.append(m)
     return dedup
 
+ACCOUNT_QUOTA_MARKERS = [
+    "billing",
+    "insufficient_quota",
+    "exceeded your current quota",
+    "generaterequestsperdayperprojectpermodel-freetier",
+    "quota_metric",
+    "perday",
+    "projectpermodel",
+    "free_tier",
+    "limit_exceeded",
+    "daily_quota",
+    "quota_exceeded",
+    "api_key_invalid",
+    "invalid_api_key",
+    "api key not valid",
+    "unauthenticated",
+    "permission_denied",
+    "invalid_argument"
+]
+
+def _is_account_quota_exhausted(err_str: str) -> bool:
+    """
+    Distinguishes account/project-level quota exhaustion and invalid API keys (key is dead)
+    from transient per-model rate limits (worth falling back to next model on same key).
+    """
+    if not err_str:
+        return False
+    lower_err = err_str.lower()
+    return any(marker in lower_err for marker in ACCOUNT_QUOTA_MARKERS)
+
 def _format_prompt(messages_or_prompt, system_instruction):
     sys_inst = system_instruction or ""
     contents = []
@@ -222,6 +252,7 @@ def call_gemini(messages_or_prompt, system_instruction=None, max_tokens=1000, te
                 last_error = ke
                 continue
 
+<<<<<<< HEAD
             for model_name in fallback_models:
                 config_args = {
                     "temperature": temperature,
@@ -231,9 +262,25 @@ def call_gemini(messages_or_prompt, system_instruction=None, max_tokens=1000, te
                     config_args["system_instruction"] = sys_inst
                 if response_json:
                     config_args["response_mime_type"] = "application/json"
+=======
+        account_key_dead = False
+        for model_name in fallback_models:
+            if account_key_dead:
+                break
+
+            config_args = {
+                "temperature": temperature,
+                "max_output_tokens": max_tokens
+            }
+            if sys_inst:
+                config_args["system_instruction"] = sys_inst
+            if response_json:
+                config_args["response_mime_type"] = "application/json"
+>>>>>>> 491f35ec37579e7dcbd0e46f9255e54c3264db88
 
                 config = types.GenerateContentConfig(**config_args)
 
+<<<<<<< HEAD
                 for attempt in range(2):
                     try:
                         response = client.models.generate_content(
@@ -268,6 +315,33 @@ def call_gemini(messages_or_prompt, system_instruction=None, max_tokens=1000, te
         if not bypass_cache:
             _ai_cache.set(prompt_input, sys_inst, temperature, response_json, or_res)
         return or_res
+=======
+            for attempt in range(2):
+                try:
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=prompt_input,
+                        config=config
+                    )
+                    res_text = response.text or ""
+                    if res_text:
+                        if not bypass_cache:
+                            _ai_cache.set(prompt_input, sys_inst, temperature, response_json, res_text)
+                        return res_text
+                except Exception as e:
+                    last_error = e
+                    err_str = str(e)
+                    if "429" in err_str or "QUOTA" in err_str.upper() or "RESOURCE_EXHAUSTED" in err_str.upper():
+                        if _is_account_quota_exhausted(err_str):
+                            account_key_dead = True
+                            break
+                        time.sleep(1.0 * (2 ** attempt))
+                        continue
+                    elif _is_account_quota_exhausted(err_str):
+                        account_key_dead = True
+                        break
+                    break
+>>>>>>> 491f35ec37579e7dcbd0e46f9255e54c3264db88
 
     raise RuntimeError(f"All AI model quotas are temporarily busy. Please wait a moment and try again. ({str(last_error)})")
 
@@ -290,6 +364,7 @@ def stream_gemini(messages_or_prompt, system_instruction=None, max_tokens=1000, 
                 last_error = ke
                 continue
 
+<<<<<<< HEAD
             for model_name in fallback_models:
                 config_args = {
                     "temperature": temperature,
@@ -297,9 +372,23 @@ def stream_gemini(messages_or_prompt, system_instruction=None, max_tokens=1000, 
                 }
                 if sys_inst:
                     config_args["system_instruction"] = sys_inst
+=======
+        account_key_dead = False
+        for model_name in fallback_models:
+            if account_key_dead:
+                break
+
+            config_args = {
+                "temperature": temperature,
+                "max_output_tokens": max_tokens
+            }
+            if sys_inst:
+                config_args["system_instruction"] = sys_inst
+>>>>>>> 491f35ec37579e7dcbd0e46f9255e54c3264db88
 
                 config = types.GenerateContentConfig(**config_args)
 
+<<<<<<< HEAD
                 for attempt in range(2):
                     yielded = False
                     try:
@@ -330,5 +419,36 @@ def stream_gemini(messages_or_prompt, system_instruction=None, max_tokens=1000, 
     if fallback_text:
         yield fallback_text
         return
+=======
+            for attempt in range(2):
+                yielded = False
+                try:
+                    response_stream = client.models.generate_content_stream(
+                        model=model_name,
+                        contents=prompt_input,
+                        config=config
+                    )
+                    for chunk in response_stream:
+                        if chunk.text:
+                            yielded = True
+                            yield chunk.text
+                    if yielded:
+                        return
+                except Exception as e:
+                    last_error = e
+                    if yielded:
+                        raise RuntimeError(f"Streaming output interrupted mid-response: {str(e)}")
+                    err_str = str(e)
+                    if "429" in err_str or "QUOTA" in err_str.upper() or "RESOURCE_EXHAUSTED" in err_str.upper():
+                        if _is_account_quota_exhausted(err_str):
+                            account_key_dead = True
+                            break
+                        time.sleep(1.5 * (2 ** attempt))
+                        continue
+                    elif _is_account_quota_exhausted(err_str):
+                        account_key_dead = True
+                        break
+                    break
+>>>>>>> 491f35ec37579e7dcbd0e46f9255e54c3264db88
 
     raise RuntimeError(f"All AI streaming services are temporarily busy. Please try again. ({str(last_error)})")
