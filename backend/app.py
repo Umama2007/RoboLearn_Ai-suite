@@ -1606,18 +1606,17 @@ def generate_flashcards():
             user_prompt = f"Topic: {topic}"
 
         system_prompt = (
-            f"You are an expert flashcard generator powered by local AI. "
-            f"Generate exactly {count} educational flashcard Q&A pairs for the topic: '{topic}'.\n"
-            f"Output ONLY a valid JSON array of objects, where each object has key 'question' and key 'answer'.\n"
-            f"Do not include any explanation outside the JSON array.\n"
-            f"Example format: [{{\"question\": \"What is X?\", \"answer\": \"X is...\"}}]"
+            f"You are an expert flashcard generator. "
+            f"Generate exactly {count} concise flashcard Q&A pairs for: '{topic}'.\n"
+            "Output ONLY valid JSON matching: [{\"question\": \"...\", \"answer\": \"...\"}]"
         )
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ]
 
-        raw_llm = call_ollama(messages, max_tokens=1000, temperature=0.2, response_json=True)
+        target_tokens = min(600, count * 70)
+        raw_llm = call_ollama(messages, max_tokens=target_tokens, temperature=0.2, response_json=True)
 
         
         json_match = re.search(r'\[.*\]', raw_llm, re.DOTALL)
@@ -1751,13 +1750,13 @@ def generate_quiz():
                 f"    {{\n"
                 f"      \"id\": 1,\n"
                 f"      \"type\": \"mcq\",\n"
-                f"      \"question\": \"Targeted question about {topic}?\",\n"
+                f"      \"question\": \"Concise question about {topic}?\",\n"
                 f"      \"options\": [\"A) Choice 1\", \"B) Choice 2\", \"C) Choice 3\", \"D) Choice 4\"],\n"
                 f"      \"answer\": \"A\",\n"
-                f"      \"explain\": \"Detailed scientific/academic explanation why option A is correct.\"\n"
+                f"      \"explain\": \"Brief 1-sentence explanation why option A is correct.\"\n"
                 f"    }}\n"
                 f"  ]\n"
-                f"}}\n"
+                f"}}"
             )
         else:
             json_schema = (
@@ -1767,34 +1766,30 @@ def generate_quiz():
                 f"    {{\n"
                 f"      \"id\": 1,\n"
                 f"      \"type\": \"{quiz_type}\",\n"
-                f"      \"question\": \"Conceptual or open-ended question about {topic} requiring a short answer?\",\n"
-                f"      \"answer\": \"The expected correct conceptual answer/key points to look for.\",\n"
-                f"      \"explain\": \"Detailed explanation of the correct concept.\"\n"
+                f"      \"question\": \"Conceptual question about {topic}?\",\n"
+                f"      \"answer\": \"Expected key points.\",\n"
+                f"      \"explain\": \"Brief conceptual explanation.\"\n"
                 f"    }}\n"
                 f"  ]\n"
-                f"}}\n"
-                f"CRITICAL: Do NOT generate an 'options' field for {quiz_type} questions."
+                f"}}"
             )
 
         system_prompt = (
-            f"You are an expert quiz generator powered by LLM and live web intelligence.\n"
-            f"{mode_instructions}\n"
-            f"Generate a high-quality {count}-question quiz STRICTLY focused on the topic: '{topic}'.\n"
-            f"CRITICAL RULES:\n"
-            f"1. Every single question MUST be directly about '{topic}'. Do NOT generate questions on unrelated subjects.\n"
-            f"2. Use full LLM general knowledge and live web context to create accurate, engaging, educational questions.\n"
-            f"Output ONLY valid JSON matching this exact structure:\n"
+            f"You are an expert quiz generator. {mode_instructions}\n"
+            f"Generate a {count}-question quiz focused strictly on '{topic}'.\n"
+            f"Keep explanations clear and concise (1 sentence).\n"
+            f"Output ONLY valid JSON matching this schema:\n"
             f"{json_schema}\n"
             f"Generate exactly {count} questions."
         )
-
 
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt_content}
         ]
 
-        raw = call_ollama(messages, max_tokens=1500, temperature=0.3, response_json=True)
+        target_tokens = min(1200, count * 220)
+        raw = call_ollama(messages, max_tokens=target_tokens, temperature=0.2, response_json=True)
         clean_raw = re.sub(r'```(?:json)?', '', raw).strip()
         start = clean_raw.find("{")
         end = clean_raw.rfind("}")
@@ -2246,7 +2241,8 @@ def generate_ppt_slides():
             {"role": "user", "content": user_prompt}
         ]
 
-        raw_llm = call_ollama(messages, max_tokens=1000, temperature=0.2, response_json=True)
+        target_tokens = min(600, count * 90)
+        raw_llm = call_ollama(messages, max_tokens=target_tokens, temperature=0.2, response_json=True)
         json_match = re.search(r'\[.*\]', raw_llm, re.DOTALL)
         if json_match:
             try:
@@ -2364,7 +2360,7 @@ def generate_flowchart():
             {"role": "user", "content": user_prompt}
         ]
 
-        raw_llm = call_ollama(messages, max_tokens=600, temperature=0.2)
+        raw_llm = call_ollama(messages, max_tokens=300, temperature=0.2)
         
         mermaid_code = ""
         if "flowchart" in raw_llm:
@@ -2424,13 +2420,13 @@ def socratic_hint():
         material = excerpt_search(book_text, question, ctx_chars=2000) if book_text else question
 
         system_prompt = (
-            "You are a master Socratic AI Tutor powered by local AI. "
+            "You are a master Socratic AI Tutor. "
             "Your goal is to guide the student to master the concept through Socratic inquiry.\n"
-            "DO NOT just give away the answer! Instead:\n"
-            "1. Evaluate their response gently (praise effort, highlight what was accurate).\n"
-            "2. Provide a subtle Socratic Hint derived from the study material.\n"
-            "3. Ask 1 targeted Counter-Question that pushes them to correct their mistake or think deeper.\n"
-            "Keep your response concise, structured, and encouraging."
+            "DO NOT give away the answer! In 2-3 brief sentences:\n"
+            "1. Praise their effort.\n"
+            "2. Provide 1 subtle Socratic Hint.\n"
+            "3. Ask 1 targeted Counter-Question.\n"
+            "Be concise and encouraging."
         )
         user_prompt = (
             f"Study Material Context:\n{material}\n\n"
@@ -2443,7 +2439,7 @@ def socratic_hint():
             {"role": "user", "content": user_prompt}
         ]
 
-        tutor_response = call_ollama(messages, max_tokens=350, temperature=0.3)
+        tutor_response = call_ollama(messages, max_tokens=220, temperature=0.3)
         return jsonify({
             "success": True,
             "socratic_response": tutor_response

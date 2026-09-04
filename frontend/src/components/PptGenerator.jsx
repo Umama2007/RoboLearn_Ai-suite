@@ -53,6 +53,22 @@ export default function PptGenerator({ userId }) {
     corporate_white: '#0f172a'
   };
 
+  const themeGradients = {
+    indigo: 'linear-gradient(135deg, #1E1B4B 0%, #312E81 50%, #4338CA 100%)',
+    cyan: 'linear-gradient(135deg, #083344 0%, #0E7490 50%, #06B6D4 100%)',
+    emerald: 'linear-gradient(135deg, #064E3B 0%, #047857 50%, #10B981 100%)',
+    amber: 'linear-gradient(135deg, #78350F 0%, #B45309 50%, #F59E0B 100%)',
+    corporate_white: 'linear-gradient(135deg, #1E293B 0%, #334155 100%)'
+  };
+
+  const themeTextColors = {
+    indigo: '#ffffff',
+    cyan: '#ffffff',
+    emerald: '#ffffff',
+    amber: '#ffffff',
+    corporate_white: '#ffffff'
+  };
+
   // Generate Deck via Local LLM
   const handleGenerateDeck = async (e) => {
     e.preventDefault();
